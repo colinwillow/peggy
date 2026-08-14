@@ -221,10 +221,11 @@ export class ProxyPeggyModel {
     // Pivots sit OUTSIDE the torso's widest point (0.52 radius, up at the
     // shoulder line) — inside it, every swing frame put the arm through the
     // belly and it visibly poked out of her lower half while running.
-    this.hookArm.position.set(-0.58, 0.20, 0.02);
+    // Fully outside the torso: 0.52 surface + 0.13 arm radius, with margin.
+    this.hookArm.position.set(-0.64, 0.22, 0.02);
     this.body.add(this.hookArm);
-    const upperGeo = new THREE.CapsuleGeometry(0.115, 0.26, 5, 10);
-    mesh(upperGeo, tentacleMat, this.hookArm, 0, -0.16, 0).rotation.z = 0.18;
+    const upperGeo = new THREE.CapsuleGeometry(0.135, 0.30, 5, 10);
+    mesh(upperGeo, tentacleMat, this.hookArm, 0, -0.18, 0).rotation.z = 0.22;
     // brass cuff where the hook is strapped on
     const cuffGeo = new THREE.CylinderGeometry(0.115, 0.10, 0.14, 12);
     mesh(cuffGeo, goldMat, this.hookArm, -0.03, -0.36, 0);
@@ -240,7 +241,7 @@ export class ProxyPeggyModel {
 
     // ── tentacle arm (her left, screen right)
     this.tentacleArm = new THREE.Group();
-    this.tentacleArm.position.set(0.58, 0.20, 0.02);
+    this.tentacleArm.position.set(0.64, 0.22, 0.02);
     this.body.add(this.tentacleArm);
     this.tentacleSegments = [];
     let parent = this.tentacleArm;
@@ -344,6 +345,8 @@ export class ProxyPeggyModel {
     // animation scratch state
     this._blink = 2 + Math.random() * 3;
     this._breathe = 0;
+    this._tentPhase = 0;   // accumulated, NOT time*freq — see the wave comment
+    this._bodyPitch = 0;   // the damped base pitch; charge lean is applied on top
     this._squash = 0;
     this._lean = 0;
     this._hookRaise = 0;
@@ -389,13 +392,19 @@ export class ProxyPeggyModel {
       // Swimming: she goes horizontal and undulates. The whole body becomes
       // the swim cycle, which is the point of being an octopus.
       const und = Math.sin(t * 4.6) * 0.10;
-      this.body.rotation.x = lerp(this.body.rotation.x, -0.95 + und, 1 - Math.pow(0.001, dt));
+      this._bodyPitch = lerp(this._bodyPitch, -0.95 + und, 1 - Math.pow(0.001, dt));
       this.body.rotation.z = lerp(this.body.rotation.z, Math.sin(t * 3.1) * 0.12, 1 - Math.pow(0.001, dt));
       bodyY = 0.72 + Math.sin(t * 2.4) * 0.05;
     } else {
-      this.body.rotation.x = damp(this.body.rotation.x, -speed * 0.16, 0.14, dt);
+      this._bodyPitch = damp(this._bodyPitch, -speed * 0.16, 0.14, dt);
       this.body.rotation.z = damp(this.body.rotation.z, roll, 0.10, dt);
     }
+    // The pitch the world sees = the damped base, plus transient offsets that
+    // are RECOMPUTED each frame. The charge lean used to do `rotation.x -=`
+    // directly, which compounded every frame against the damper and folded her
+    // backwards through ~140 degrees over a one-second aim. Offsets on top of
+    // a tracked base cannot accumulate, by construction.
+    this.body.rotation.x = this._bodyPitch - (ctx.hookCharge || 0) * 0.16;
 
     this.body.position.y = bodyY;
     this.body.position.x = sway;
@@ -462,27 +471,35 @@ export class ProxyPeggyModel {
     ) + swingX;
     // baseline z tips the arm OUT from the fat torso so the run-swing arcs
     // around the belly instead of through it
-    this.hookArm.rotation.z = lerp(0.30, -0.25, this._hookRaise) + swingZ;
+    this.hookArm.rotation.z = lerp(0.40, -0.25, this._hookRaise) + swingZ;
     this.hookArm.rotation.y = swingY;
 
-    // ── charging the hook: she rears back and the eye widens ──────────────
+    // ── charging the hook: the arm winds back (fresh-assigned above, so this
+    //    offset cannot accumulate; the body's lean lives with _bodyPitch) ───
     const charge = ctx.hookCharge || 0;
     if (charge > 0.01) {
       this.hookArm.rotation.x -= charge * 0.9;
-      this.body.rotation.x -= charge * 0.10;
     }
 
     // tentacle arm: a travelling wave down the segments, so it curls rather
-    // than swinging like a rigid limb
+    // than swinging like a rigid limb.
+    //
+    // The phase is ACCUMULATED (phase += freq * dt), never computed as
+    // time * freq. With time being minutes since boot, computing it directly
+    // means any change in freq — i.e. any change in run speed — multiplies
+    // against the whole elapsed time and teleports the phase by tens of
+    // radians. That was the "left arm goes absolutely insane while walking":
+    // every speed fluctuation scrambled the wave to a random point.
     const wave = inWater ? 3.4 : 1.6 + speed * 3.2;
+    this._tentPhase += wave * dt;
     for (let i = 0; i < this.tentacleSegments.length; i++) {
       const seg = this.tentacleSegments[i];
       const off = i * 0.55;
-      seg.rotation.x = Math.sin(t * wave - off) * (0.18 + i * 0.05) + (inWater ? 0.25 : 0.10);
-      seg.rotation.z = Math.cos(t * wave * 0.7 - off) * (0.10 + i * 0.03);
+      seg.rotation.x = Math.sin(this._tentPhase - off) * (0.18 + i * 0.05) + (inWater ? 0.25 : 0.10);
+      seg.rotation.z = Math.cos(this._tentPhase * 0.7 - off) * (0.10 + i * 0.03);
     }
     this.tentacleArm.rotation.x = Math.sin(phase + Math.PI) * 0.30 * speed;
-    this.tentacleArm.rotation.z = -0.30;   // mirrored outward tip
+    this.tentacleArm.rotation.z = -0.40;   // mirrored outward tip
 
     // The CUTLASS side leads the backhand and joins the spin — hook arm and
     // sword arm trading swings is what sells the combo as three moves rather
