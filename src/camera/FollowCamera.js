@@ -23,24 +23,29 @@ const CAM = {
   distance: 6.3,
   height: 2.0,
   lookHeight: 1.15,
-  minPitch: -0.95,
-  maxPitch: 1.05,
+
+  // FIXED TILT. The player rotates the camera around her but never tilts it.
+  // That's the convention for this kind of third-person action game, and the
+  // real payoff is that it frees the right stick's vertical axis — and with it
+  // the whole right thumb — for melee / shoot / interact instead of spending it
+  // on a pitch axis nobody asks for.
+  pitch: 0.30,           // ~17 degrees above her, looking down
 
   yawRate: 2.9,          // radians/sec at full stick
-  pitchRate: 1.9,
   yawHL: 0.10,
-  yawHLFree: 0.03,       // while the player is actively looking
+  yawHLFree: 0.03,       // while the player is actively turning
   maxYawLag: 0.09,       // radians the camera may trail its target
   focusHL: 0.085,
 
-  autoFollowDelay: 1.1,  // seconds of no look input before auto-follow kicks in
-  autoFollowHL: 0.85,    // deliberately slow — a camera that yanks itself behind
-                         // you is worse than one that never does
+  // Recentre, on demand. Deliberately NOT automatic: a camera that swings
+  // itself behind you fights every deliberate angle you set, so instead the
+  // player taps to snap it back when they want it.
+  recentreHL: 0.11,      // fast enough to feel like a snap, slow enough to read
+
   lookAhead: 1.5,
   lookAheadHL: 0.35,
 
   swimDistance: 6.2,
-  swimPitchBias: -0.12,
   diveDistance: 5.4,
 
   collisionRadius: 0.42,
@@ -61,9 +66,9 @@ export class FollowCamera {
     this.water = water;
 
     this.yaw = 0;
-    this.pitch = 0.22;
     this.targetYaw = 0;
-    this.targetPitch = 0.22;
+    /** Fixed. Exposed so it can be tweaked live from the console. */
+    this.pitch = CAM.pitch;
 
     this.focus = new THREE.Vector3();
     this.distance = CAM.distance;
@@ -71,67 +76,52 @@ export class FollowCamera {
     this.trauma = 0;
     this.underwater = false;
 
-    this._sinceLook = 99;
+    this._recentring = false;
     this._lookAhead = new THREE.Vector2();
     this._tmp = new THREE.Vector3();
     this._tmp2 = new THREE.Vector3();
   }
-
-  /**
-   * Where the camera is LOOKING, positive = up.
-   *
-   * `pitch` is the orbit angle: positive puts the camera above the character,
-   * which means it is looking DOWN. Every consumer wants the look direction,
-   * not the orbit angle, so the flip lives here once instead of being
-   * rediscovered (and got wrong) at each call site.
-   */
-  get aimPitch() { return -this.pitch; }
 
   /** Kick the camera without easing — for spawns and cuts. */
   snapTo(peggy) {
     this.targetYaw = this.yaw = peggy.facing + Math.PI;
     this.focus.set(peggy.position.x, peggy.position.y + CAM.lookHeight, peggy.position.z);
     this.distance = this._distanceWanted = CAM.distance;
+    this._recentring = false;
+  }
+
+  /**
+   * Swing the camera back behind her. Bound to a tap on the MOVE stick, so a
+   * player who is only running around never has to touch the right thumb.
+   */
+  recentre(peggy) {
+    this.targetYaw = peggy.facing + Math.PI;
+    this._recentring = true;
   }
 
   addTrauma(t) { this.trauma = clamp01(this.trauma + t); }
 
   update(dt, peggy, look) {
-    // ── manual look ───────────────────────────────────────────────────────
-    const looking = look.mag > 0.05;
-    if (looking) {
+    // ── manual rotation ───────────────────────────────────────────────────
+    // Horizontal only. look.y is ignored on purpose — see CAM.pitch.
+    const turning = Math.abs(look.x) > 0.05;
+    if (turning) {
       this.targetYaw -= look.x * CAM.yawRate * dt;
-      this.targetPitch = clamp(
-        this.targetPitch + look.y * CAM.pitchRate * dt,
-        CAM.minPitch, CAM.maxPitch
-      );
-      this._sinceLook = 0;
-    } else {
-      this._sinceLook += dt;
-    }
-
-    // ── auto-follow ───────────────────────────────────────────────────────
-    // Only once the player has stopped steering, only while actually moving,
-    // and slowly. This exists so you don't have to fight the stick to keep
-    // running forward — not to take the camera away from you.
-    const moving = peggy.speedRatio > 0.25 && !peggy.inWater;
-    if (!looking && this._sinceLook > CAM.autoFollowDelay && moving) {
-      const behind = peggy.facing + Math.PI;
-      const blend = clamp01((this._sinceLook - CAM.autoFollowDelay) * 0.7) * peggy.speedRatio;
-      this.targetYaw = this.targetYaw + wrapAngle(behind - this.targetYaw) *
-        (1 - Math.pow(2, -dt / (CAM.autoFollowHL / Math.max(blend, 0.05))));
+      this._recentring = false;    // any manual input cancels a recentre
     }
 
     // ── ease yaw, with the lag cap ────────────────────────────────────────
-    const hl = looking ? CAM.yawHLFree : CAM.yawHL;
+    // Without the cap a long turn builds a backlog that visibly unwinds after
+    // you let go, which reads as the camera continuing to turn on its own.
+    const hl = this._recentring ? CAM.recentreHL : (turning ? CAM.yawHLFree : CAM.yawHL);
     this.yaw = dampAngle(this.yaw, this.targetYaw, hl, dt);
     const lag = wrapAngle(this.targetYaw - this.yaw);
-    const maxLag = looking ? CAM.maxYawLag * 0.6 : CAM.maxYawLag;
-    if (Math.abs(lag) > maxLag) this.yaw = this.targetYaw - Math.sign(lag) * maxLag;
-
-    let pitchTarget = this.targetPitch;
-    if (peggy.state === 'swim') pitchTarget += CAM.swimPitchBias;
-    this.pitch = damp(this.pitch, pitchTarget, 0.09, dt);
+    if (this._recentring) {
+      if (Math.abs(lag) < 0.02) { this.yaw = this.targetYaw; this._recentring = false; }
+    } else {
+      const maxLag = turning ? CAM.maxYawLag * 0.6 : CAM.maxYawLag;
+      if (Math.abs(lag) > maxLag) this.yaw = this.targetYaw - Math.sign(lag) * maxLag;
+    }
 
     // ── focus point, with look-ahead ──────────────────────────────────────
     const laX = peggy.velocity.x / Math.max(peggy.T.runSpeed, 0.001);

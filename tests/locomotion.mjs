@@ -75,6 +75,55 @@ const out = await page.evaluate(() => {
 
   const r = {};
 
+  // ── 0. STICK DIRECTION vs the camera ────────────────────────────────────
+  // The one that got shipped broken. Every other movement check here passed
+  // while forward ran backwards, because they all measured DISTANCE and never
+  // direction. Push the stick four ways at several camera angles and assert
+  // she goes where the screen says.
+  //
+  //   camera at  focus + (sin yaw, cos yaw) * dist  =>  forward = (-sin, -cos)
+  //                                                     right   = ( cos, -sin)
+  const dirs = [];
+  for (const yaw of [0, Math.PI / 2, Math.PI, -Math.PI / 2, 0.7]) {
+    for (const [name, sx, sy] of [['fwd',0,1], ['back',0,-1], ['right',1,0], ['left',-1,0]]) {
+      P.teleport(0, L.terrainHeight(0, 0) + 0.5, 0);
+      setMove(0, 0); step(90, yaw);
+      const x0 = P.position.x, z0 = P.position.z;
+      setMove(sx, sy); step(90, yaw);
+      const dx = P.position.x - x0, dz = P.position.z - z0;
+      const len = Math.hypot(dx, dz) || 1e-9;
+
+      const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
+      const rx =  Math.cos(yaw), rz = -Math.sin(yaw);
+      const ex = sx * rx + sy * fx, ez = sx * rz + sy * fz;   // expected unit dir
+      const dot = (dx / len) * ex + (dz / len) * ez;          // 1 = perfect
+      dirs.push({ yaw: +yaw.toFixed(2), push: name, dot: +dot.toFixed(3), moved: +len.toFixed(2) });
+    }
+  }
+  // Independent cross-check, free of the algebra above: pushing FORWARD must
+  // increase the distance from the camera, and BACK must decrease it. That is
+  // the thing the player actually perceives, and it can't both-ways-cancel if
+  // my derivation of F and R is itself wrong.
+  const away = [];
+  for (const yaw of [0, Math.PI / 2, Math.PI, -Math.PI / 2, 0.7]) {
+    for (const [name, sy, want] of [['fwd', 1, +1], ['back', -1, -1]]) {
+      P.teleport(0, L.terrainHeight(0, 0) + 0.5, 0);
+      setMove(0, 0); step(90, yaw);
+      // where the follow cam would sit for this yaw
+      const cx = P.position.x + Math.sin(yaw) * 6.3;
+      const cz = P.position.z + Math.cos(yaw) * 6.3;
+      const d0 = Math.hypot(P.position.x - cx, P.position.z - cz);
+      setMove(0, sy); step(90, yaw);
+      const d1 = Math.hypot(P.position.x - cx, P.position.z - cz);
+      away.push({ yaw: +yaw.toFixed(2), push: name, delta: +(d1 - d0).toFixed(2), sign: Math.sign(d1 - d0) === want ? 1 : -1 });
+    }
+  }
+  r.worstAwayDot = Math.min(...away.map((a) => a.sign));
+
+  r.stickDirs = dirs;
+  r.worstStickDot = Math.min(...dirs.map((d) => d.dot));
+  r.minStickMove  = Math.min(...dirs.map((d) => d.moved));
+
   // ── 1. top speed and the acceleration curve ──────────────────────────────
   P.teleport(0, L.terrainHeight(0, 0) + 0.5, 0);
   step(60); // settle onto the ground
@@ -214,8 +263,8 @@ const out = await page.evaluate(() => {
   P.teleport(4, 0, -46);
   setMove(0, 0); step(120);
   const wadeStart = P.state;
-  setMove(0, 1); // head inland
-  step(600);
+  setMove(0, 1);          // "forward"...
+  step(600, Math.PI);     // ...with the camera turned so forward IS inland
   r.wade = { start: wadeStart, end: P.state, y: +P.position.y.toFixed(2), grounded: P.grounded };
 
   // ── 10. the hook: swing off a mast anchor ───────────────────────────────
@@ -259,6 +308,21 @@ const out = await page.evaluate(() => {
   }
   r.fellThrough = { checked, below };
 
+  // ── camera: fixed tilt, and recentre ────────────────────────────────────
+  const p0 = F.pitch;
+  F.update(1 / 120, P, { x: 0, y: 1, mag: 1 });    // shove the look stick UP
+  F.update(1 / 120, P, { x: 0, y: -1, mag: 1 });   // ...and DOWN
+  r.pitchFixed = Math.abs(F.pitch - p0) < 1e-9;
+
+  P.teleport(0, L.terrainHeight(0, 0) + 0.5, 0);
+  P.facing = 1.2;
+  F.targetYaw = F.yaw = 1.2 + Math.PI + 2.0;       // knock it well off-centre
+  F.recentre(P);
+  for (let i = 0; i < 240; i++) F.update(1 / 120, P, { x: 0, y: 0, mag: 0 });
+  const off = Math.abs(Math.atan2(Math.sin(F.yaw - (P.facing + Math.PI)),
+                                  Math.cos(F.yaw - (P.facing + Math.PI))));
+  r.recentreWorks = off < 0.05;
+
   return r;
 });
 
@@ -268,6 +332,9 @@ await browser.close();
 // Ranges, not exact values: floating-point integration over thousands of steps
 // is deterministic but not something to pin to four decimal places.
 const checks = [
+  ['stick goes where screen says',  out.worstStickDot, 0.97, 1.01],
+  ['forward moves AWAY from camera', out.worstAwayDot, 0.97, 1.01],
+  ['every push actually moves her',  out.minStickMove, 0.5, 99],
   ['top speed 6.5 m/s',            out.topSpeed, 6.3, 6.7],
   ['reaches top speed by 2s',      out.accel.find((a) => a.t === 2).speed, 6.0, 6.7],
   ['starts at a jog, not a crawl', out.accel[0].speed, 0.9, 2.2],
@@ -289,6 +356,8 @@ const bools = [
   ['dive does not ping-pong',           out.diveStateFlips <= 2],
   ['wading out returns you to ground',  out.wade.end === 'ground' && out.wade.grounded],
   ['hook latches and swings',           out.hook.stateAfterFire === 'swinging'],
+  ['camera tilt is fixed',              out.pitchFixed],
+  ['tap-left recentres the camera',     out.recentreWorks],
   ['swing holds the rope',              out.hook.stateLater === 'swinging' && out.hook.ropeLength > 1],
   ['never falls through the world',     out.fellThrough.below === 0],
   ['no console errors',                 errors.filter((e) => !/peggy\.glb|404/.test(e)).length === 0],

@@ -42,14 +42,22 @@ you're on.
 | | Touch | Keyboard / mouse | Gamepad |
 |---|---|---|---|
 | Move | left stick | `WASD` | left stick |
-| Look | right stick | mouse | right stick |
-| Jump | **tap** left stick | `Space` | A |
-| Hook | **tap** right stick | left click | RT |
-| Dive | **flick** left stick down | `C` | B |
+| Turn camera | right stick, **horizontal only** | mouse X, or `Q`/`E` | right stick X |
+| Centre camera | **tap** left stick | `R` | L3 |
+| Jump | **tap** right stick | `Space` | A |
+| Hook | HOOK button | left click, or `F` | RT |
+| Dive | DIVE button, or **flick** left stick down | `C` | B |
 
-Tapping the stick you're already holding is what buys the extra buttons —
-a tap and a push are distinguishable (travel + duration + peak deflection), so
-jump and hook cost no screen space.
+**The camera's tilt is fixed.** You rotate around her, you never pitch. Giving
+up that axis is the point — it frees the right thumb for melee / shoot /
+interact, which is where the verbs that don't exist yet are going to live.
+
+**The left stick is locomotion and nothing else.** Tapping it recentres the
+camera behind her, so a player who only wants to run around never has to
+involve their right thumb at all.
+
+Discrete verbs get real buttons rather than stick gestures, because a flick on
+the right stick is also a camera drag — the two fight, and the camera wins.
 
 The sticks are **floating**: each owns an invisible half of the screen and its
 centre appears wherever your thumb lands. You never look at your thumbs, so a

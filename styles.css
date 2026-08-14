@@ -259,3 +259,61 @@ body.touch .legend-kbm { display: none; }
   .stick-zone { top: 30vh; }
   #controls-legend { bottom: calc(var(--safe-b) + 6px); font-size: 9.5px; }
 }
+
+/* ── ACTION BUTTONS ──────────────────────────────────────────────────────
+   Sit above the right stick zone as siblings, NOT children — a child of the
+   stick zone would let the zone's touchstart fire underneath and start a
+   camera drag on every button press. Being separate elements means the zone
+   listener never sees these touches at all. */
+
+#actions {
+  position: fixed;
+  right: calc(var(--safe-r) + 18px);
+  bottom: calc(var(--safe-b) + 92px);
+  z-index: 9;
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  touch-action: none;
+}
+
+.act {
+  -webkit-appearance: none;
+  appearance: none;
+  border-radius: 50%;
+  font-family: inherit;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--parchment);
+  background: rgba(20, 34, 54, 0.5);
+  border: 2px solid rgba(244, 230, 200, 0.42);
+  backdrop-filter: blur(6px);
+  cursor: pointer;
+  touch-action: none;
+  transition: transform 90ms cubic-bezier(.2,.9,.3,1.4), background 90ms, border-color 90ms;
+}
+.act-lg { width: 76px; height: 76px; font-size: 12px; }
+.act-sm { width: 56px; height: 56px; font-size: 10px; }
+
+#btn-hook {
+  border-color: rgba(224, 181, 82, 0.75);
+  background: radial-gradient(circle at 38% 32%, rgba(224,181,82,0.34), rgba(20,34,54,0.55) 70%);
+  box-shadow: 0 0 18px rgba(224, 181, 82, 0.28);
+}
+#btn-dive {
+  border-color: rgba(83, 215, 200, 0.6);
+  background: radial-gradient(circle at 38% 32%, rgba(83,215,200,0.26), rgba(20,34,54,0.55) 70%);
+}
+
+.act.pressed { transform: scale(0.9); background: rgba(244, 230, 200, 0.30); }
+.act:focus-visible { outline: 3px solid var(--gold); outline-offset: 3px; }
+
+/* Desktop drives these from the keyboard; the buttons would just be clutter. */
+@media (hover: hover) and (pointer: fine) { #actions { display: none; } }
+
+/* Portrait phones are short on height — tuck the cluster down and shrink it. */
+@media (orientation: portrait) and (pointer: coarse) {
+  #actions { bottom: calc(var(--safe-b) + 74px); gap: 10px; }
+  .act-lg { width: 68px; height: 68px; }
+  .act-sm { width: 50px; height: 50px; font-size: 9px; }
+}

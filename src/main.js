@@ -119,6 +119,8 @@ async function boot() {
     zoneR: document.getElementById('zone-right'),
     knobR: document.getElementById('knob-right'),
     ringR: document.getElementById('ring-right'),
+    btnHook: document.getElementById('btn-hook'),
+    btnDive: document.getElementById('btn-dive'),
   };
   const input = new Input(dom);
 
@@ -141,8 +143,8 @@ async function boot() {
   function update(dt, time) {
     input.sample(dt);
 
-    // aimPitch, not pitch — see the getter for why the sign matters.
-    peggy.update(dt, input.move, input, follow.yaw, follow.aimPitch);
+    peggy.update(dt, input.move, input, follow.yaw);
+    if (input.recentre.pressed) follow.recentre(peggy);
     hook.update(dt, input, input.move);
     follow.update(dt, peggy, input.look);
 
@@ -215,7 +217,7 @@ async function boot() {
       let hint = '';
       if (hook.state === HookState.SWINGING) hint = 'PUSH FORWARD TO CLIMB · TAP TO RELEASE';
       else if (hook.state === HookState.REELING) hint = 'REELING IN';
-      else if (peggy.state === State.DIVE) hint = 'HOLD JUMP TO RISE · DIVE TO SINK';
+      else if (peggy.state === State.DIVE) hint = 'HOLD JUMP TO RISE · HOLD DIVE TO SINK';
       else if (peggy.state === State.SWIM) hint = 'TAP DIVE TO GO UNDER';
       hud.hint.textContent = hint;
 

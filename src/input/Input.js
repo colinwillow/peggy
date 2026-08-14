@@ -6,13 +6,29 @@
 // reachable with two thumbs, and if it isn't, the design is wrong, not the
 // input layer.
 //
+// The scheme, and why:
+//
+//   LEFT STICK is locomotion and nothing else. Drag to move; that's the whole
+//   contract, and it's the one a player forms an expectation about in the first
+//   two seconds. Tapping it RECENTRES THE CAMERA, so someone who only ever
+//   wants to run around never has to involve their right thumb at all.
+//
+//   RIGHT STICK rotates the camera — horizontally ONLY. The tilt is fixed (see
+//   FollowCamera.CAM.pitch). Giving up the vertical axis is the point: it frees
+//   the right thumb's gestures for melee / shoot / interact, which is where the
+//   verbs that don't exist yet are going to live.
+//
+//   ACTION BUTTONS sit above the right stick. Discrete verbs go here rather
+//   than on stick gestures, because a flick on the right stick is also a
+//   camera drag — the two fight, and the camera always wins.
+//
 // Actions:
-//   move   analogue, screen-space (+y is forward/up-screen)
-//   look   analogue, camera orbit
-//   jump   tap left stick   / Space        / A
-//   hook   tap right stick  / LMB          / RT      — hold to aim, release to fire
-//   dive   flick left stick down / Shift   / B       — dive underwater while swimming
-//   sprint hold right stick centre / Shift / L3
+//   move      analogue, screen-space (+y is forward/up-screen)
+//   look      analogue, camera yaw only (x); y is ignored
+//   recentre  tap left stick    / R      / L3
+//   jump      tap right stick   / Space  / A
+//   hook      HOOK button       / LMB    / RT
+//   dive      DIVE button, or flick left stick down / C / B
 
 import { Joystick } from './Joystick.js';
 import { clamp } from '../core/math.js';
@@ -36,7 +52,7 @@ export class Input {
     this.jump = new Button();
     this.hook = new Button();
     this.dive = new Button();
-    this.sprint = new Button();
+    this.recentre = new Button();
     this.pause = new Button();
 
     /** Which source produced the most recent input — used to swap the HUD. */
@@ -58,8 +74,36 @@ export class Input {
     this.stickL = new Joystick(dom.zoneL, dom.knobL, dom.ringL, { floating: true });
     this.stickR = new Joystick(dom.zoneR, dom.knobR, dom.ringR, { floating: true });
 
-    this.stickL.onTap = () => { this.jump.tap(); this.lastSource = 'touch'; };
-    this.stickR.onTap = () => { this.hook.tap(); this.lastSource = 'touch'; };
+    this.stickL.onTap = () => { this.recentre.tap(); this.lastSource = 'touch'; };
+    this.stickR.onTap = () => { this.jump.tap(); this.lastSource = 'touch'; };
+
+    // Action buttons. Bound on touchstart, not click: waiting for a click adds
+    // the browser's tap delay and drops the input if the thumb slides at all,
+    // which on an action button reads as the game ignoring you.
+    this._btnHeld = Object.create(null);
+    const bind = (el, name) => {
+      if (!el) return;
+      const down = (e) => {
+        e.preventDefault(); e.stopPropagation();
+        this._btnHeld[name] = true;
+        this[name].tap();
+        this.lastSource = 'touch';
+        el.classList.add('pressed');
+      };
+      const up = (e) => {
+        e.preventDefault(); e.stopPropagation();
+        this._btnHeld[name] = false;
+        el.classList.remove('pressed');
+      };
+      el.addEventListener('touchstart', down, { passive: false });
+      el.addEventListener('touchend', up);
+      el.addEventListener('touchcancel', up);
+      // mouse fallback, so the buttons also work on a desktop browser
+      el.addEventListener('mousedown', down);
+      addEventListener('mouseup', up);
+    };
+    bind(dom.btnHook, 'hook');
+    bind(dom.btnDive, 'dive');
   }
 
   // ── keyboard ─────────────────────────────────────────────────────────────
@@ -107,7 +151,7 @@ export class Input {
   /** Call once per frame, before anything reads the intent. */
   sample(dt) {
     let mx = 0, my = 0, lx = 0, ly = 0;
-    let jump = false, hook = false, dive = false, sprint = false, pause = false;
+    let jump = false, hook = false, dive = false, recentre = false, pause = false;
 
     // touch sticks — screen y is down, intent y is forward, hence the negation
     if (this.stickL.held) {
@@ -115,9 +159,14 @@ export class Input {
       if (this.stickL.mag > 0.05) this.lastSource = 'touch';
     }
     if (this.stickR.held) {
-      lx += this.stickR.x; ly += -this.stickR.y;
-      sprint = sprint || this.stickR.centreHeld;
+      // x only. The vertical axis is deliberately dropped, not merely unused —
+      // see the header. Reading it here would reintroduce camera pitch.
+      lx += this.stickR.x;
       if (this.stickR.mag > 0.05) this.lastSource = 'touch';
+    }
+    for (const name in this._btnHeld) if (this._btnHeld[name]) {
+      if (name === 'hook') hook = true;
+      else if (name === 'dive') dive = true;
     }
     // flick the move stick hard downward to dive
     const flick = this.stickL.consumeFlick(0.9);
@@ -133,14 +182,13 @@ export class Input {
     if (k.KeyE) lx += 1;
     jump = jump || !!k.Space;
     dive = dive || !!k.KeyC;
-    sprint = sprint || !!(k.ShiftLeft || k.ShiftRight);
+    hook = hook || !!k.KeyF;
+    recentre = recentre || !!k.KeyR;
     pause = pause || !!k.Escape;
 
-    // mouse look — accumulated deltas, converted to a per-second rate
+    // mouse look — horizontal only, to match the sticks
     if (this._mouse.locked) {
-      const s = 0.14;
-      lx += clamp(this._mouse.dx * s, -1, 1);
-      ly += clamp(-this._mouse.dy * s, -1, 1);
+      lx += clamp(this._mouse.dx * 0.14, -1, 1);
     }
     this._mouse.dx = 0; this._mouse.dy = 0;
     hook = hook || this._mouse.down;
@@ -150,15 +198,15 @@ export class Input {
     if (gp) {
       const dz = (v) => (Math.abs(v) < 0.18 ? 0 : (v - Math.sign(v) * 0.18) / 0.82);
       const gx = dz(gp.axes[0] || 0), gy = dz(gp.axes[1] || 0);
-      const rx = dz(gp.axes[2] || 0), ry = dz(gp.axes[3] || 0);
-      if (gx || gy || rx || ry) this.lastSource = 'pad';
+      const rx = dz(gp.axes[2] || 0);
+      if (gx || gy || rx) this.lastSource = 'pad';
       mx += gx; my += -gy;
-      lx += rx; ly += -ry;
+      lx += rx;                       // right stick Y unused, same as touch
       const btn = (i) => !!(gp.buttons[i] && gp.buttons[i].pressed);
       if (btn(0)) { jump = true; this.lastSource = 'pad'; }
       if (btn(1)) dive = true;
       if (btn(7) || btn(5)) { hook = true; this.lastSource = 'pad'; }
-      if (btn(10)) sprint = true;
+      if (btn(10)) recentre = true;   // L3
       if (btn(9)) pause = true;
     }
 
@@ -174,13 +222,13 @@ export class Input {
     this.jump.set(jump);
     this.hook.set(hook);
     this.dive.set(dive);
-    this.sprint.set(sprint);
+    this.recentre.set(recentre);
     this.pause.set(pause);
 
     this.jump.edge();
     this.hook.edge();
     this.dive.edge();
-    this.sprint.edge();
+    this.recentre.edge();
     this.pause.edge();
   }
 }

@@ -133,18 +133,28 @@ export class Peggy {
    * @param {{x:number,y:number,mag:number}} move  screen-space stick
    * @param {object} buttons  { jump, dive } with .pressed / .down
    * @param {number} camYaw   camera yaw, for camera-relative movement
-   * @param {number} aimPitch where the camera is LOOKING, positive = up.
-   *   Note this is not the camera's orbit pitch, which is the opposite sign —
-   *   a camera high above the character is looking down. Peggy only ever wants
-   *   the look direction, so the camera exposes it pre-flipped as `aimPitch`.
+   *
+   * There is deliberately no pitch parameter. The camera's tilt is fixed, so
+   * nothing about movement — including swimming down — is allowed to depend on
+   * where the camera is looking vertically.
    */
-  update(dt, move, buttons, camYaw, aimPitch) {
-    // Camera-relative: the stick means "that way on screen", always. This is
-    // the single most important thing in a third-person control scheme and the
-    // easiest to get subtly wrong.
+  update(dt, move, buttons, camYaw) {
+    // Camera-relative: the stick means "that way on screen", always.
+    //
+    // Derivation, written out because getting a sign wrong here is invisible in
+    // any test that only checks that she moved:
+    //
+    //   the camera sits at  focus + (sin yaw, cos yaw) * distance
+    //   so (sin yaw, cos yaw) points FROM the focus TO the camera — backwards.
+    //   forward  F = (-sin yaw, -cos yaw)
+    //   right    R = ( cos yaw, -sin yaw)      [ F rotated -90 deg about +Y ]
+    //   wish     = move.x * R  +  move.y * F
+    //
+    // Sanity check at yaw = 0: the camera is at +Z looking toward -Z, so
+    // forward must be -Z and right must be +X. F = (0,-1), R = (1,0). Correct.
     const cos = Math.cos(camYaw), sin = Math.sin(camYaw);
-    const wishX = move.x * cos + move.y * sin;
-    const wishZ = -move.x * sin + move.y * cos;
+    const wishX = move.x * cos - move.y * sin;
+    const wishZ = -move.x * sin - move.y * cos;
     const wishMag = clamp01(Math.hypot(wishX, wishZ));
 
     this._waterLock = Math.max(0, this._waterLock - dt);
@@ -154,8 +164,8 @@ export class Peggy {
       this.hookOverride(dt, wishX, wishZ, wishMag);
     } else {
       switch (this.state) {
-        case State.SWIM: this._swim(dt, wishX, wishZ, wishMag, buttons, aimPitch); break;
-        case State.DIVE: this._dive(dt, wishX, wishZ, wishMag, buttons, camYaw, aimPitch); break;
+        case State.SWIM: this._swim(dt, wishX, wishZ, wishMag, buttons); break;
+        case State.DIVE: this._dive(dt, wishX, wishZ, wishMag, buttons); break;
         case State.AIR: this._air(dt, wishX, wishZ, wishMag, buttons); break;
         default: this._groundMove(dt, wishX, wishZ, wishMag, buttons); break;
       }
@@ -307,7 +317,7 @@ export class Peggy {
 
   // ── swimming ────────────────────────────────────────────────────────────
 
-  _swim(dt, wishX, wishZ, wishMag, buttons, aimPitch) {
+  _swim(dt, wishX, wishZ, wishMag, buttons) {
     const T = this.T;
     this.grounded = false;
     this.momentum = clamp01(this.momentum + (wishMag > 0.18 ? T.momentumBuild : -T.momentumDecay) * dt);
@@ -322,9 +332,7 @@ export class Peggy {
     this._faceMotion(dt, wishX, wishZ, wishMag, T.swimTurnHL);
 
     // Down you go. She's an octopus — underwater is the good part.
-    // Swimming forward while aiming the camera down also takes you under, so
-    // diving never strictly requires the button.
-    if (buttons.dive.pressed || (aimPitch < -0.35 && wishMag > 0.5)) {
+    if (buttons.dive.pressed) {
       this.state = State.DIVE;
       this.velocity.y = -T.diveSpeed * 0.6;
       this._diveGrace = 0.35;
@@ -340,24 +348,24 @@ export class Peggy {
     }
   }
 
-  _dive(dt, wishX, wishZ, wishMag, buttons, camYaw, aimPitch) {
+  _dive(dt, wishX, wishZ, wishMag, buttons) {
     const T = this.T;
     this.grounded = false;
 
     this._diveGrace = Math.max(0, (this._diveGrace || 0) - dt);
 
-    // Full 3D: the stick steers, and where the camera LOOKS tilts the swim into
-    // the vertical. This is the classic 3D-swim scheme and it works on a thumb
-    // because the right stick is already the camera.
-    const pitch = clamp(aimPitch, -1.2, 1.2);
-    const horiz = Math.cos(pitch);
-    const targetX = wishX * T.diveSpeed * horiz;
-    const targetZ = wishZ * T.diveSpeed * horiz;
-    let targetY = wishMag * Math.sin(pitch) * T.diveSpeed;
+    // Underwater is a plane plus an explicit up/down, NOT a camera-aimed dive.
+    // With a fixed camera there is no pitch to aim with, and tying depth to a
+    // camera the player cannot tilt would make sinking feel like a bug.
+    // So: stick swims her horizontally, hold DIVE to sink, hold JUMP to rise,
+    // and let go of everything to drift up.
+    const targetX = wishX * T.diveSpeed;
+    const targetZ = wishZ * T.diveSpeed;
+    let targetY = 0;
 
     if (buttons.dive.down) targetY -= T.diveSpeed * 0.85;
-    if (buttons.jump.down) targetY += T.diveSpeed * 0.85;
-    else if (wishMag < 0.15 && !buttons.dive.down) targetY += T.buoyancy * 0.35; // drift up when idle
+    else if (buttons.jump.down) targetY += T.diveSpeed * 0.85;
+    else targetY += T.buoyancy * 0.30;   // she floats; idle means surfacing
 
     this.velocity.x = damp(this.velocity.x, targetX, T.swimAccelHL, dt);
     this.velocity.z = damp(this.velocity.z, targetZ, T.swimAccelHL, dt);
