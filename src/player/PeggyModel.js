@@ -229,6 +229,7 @@ export class ProxyPeggyModel {
     this.hook = new THREE.Group();
     this.hook.position.set(-0.04, -0.46, 0);
     this.hookArm.add(this.hook);
+    this.hook.scale.setScalar(1.25);   // the hook is her whole deal — oversell it
     const hookGeo = new THREE.TorusGeometry(0.135, 0.032, 8, 18, Math.PI * 1.35);
     const hookMesh = mesh(hookGeo, metalMat, this.hook, 0, -0.10, 0);
     hookMesh.rotation.set(Math.PI / 2, 0, -0.5);
@@ -274,6 +275,42 @@ export class ProxyPeggyModel {
     mesh(new THREE.CylinderGeometry(0.125, 0.115, 0.09, 12), goldMat, this.legPeg, 0, -0.19, 0);
     mesh(new THREE.ConeGeometry(0.105, 0.34, 10), mat(PALETTE.leather), this.legPeg, 0, -0.38, 0);
     mesh(new THREE.CylinderGeometry(0.035, 0.045, 0.05, 8), mat(PALETTE.leatherDark), this.legPeg, 0, -0.55, 0);
+
+    // ── the pink blotches off the character sheet ─────────────────────────
+    // Flattened darker-pink spheres over the back and sides — the mottled skin
+    // is half of what makes her read as a sea creature rather than a balloon.
+    const blotchMat = mat(PALETTE.blotch);
+    for (const [bx, by, bz, br] of [
+      [-0.30, 0.20, -0.34, 0.15], [0.34, 0.02, -0.32, 0.12],
+      [-0.16, -0.26, -0.40, 0.10], [0.24, 0.34, -0.26, 0.09],
+      [-0.42, -0.02, -0.22, 0.08], [0.44, 0.22, -0.14, 0.07],
+    ]) {
+      const b = mesh(new THREE.SphereGeometry(br, 8, 6), blotchMat, this.body, bx, by, bz);
+      b.lookAt(bx * 3, 0.72 + by * 3, bz * 3);   // face outward from the body
+      b.scale.z = 0.30;                          // ...then flatten against it
+      b.castShadow = false;
+      b.userData.noOutline = true;               // an inked blotch reads as a hole
+    }
+
+    // ── eyelashes: three on the lid, tipped outward like the sheet ────────
+    const lashMat = mat(PALETTE.pupil);
+    for (const la of [-0.45, 0, 0.45]) {
+      const lash = mesh(new THREE.ConeGeometry(0.020, 0.11, 5), lashMat, this.eyeGroup,
+        Math.sin(la) * 0.15, 0.225, 0.10);
+      lash.rotation.set(-0.55, 0, -la * 0.9);
+      lash.castShadow = false;
+      lash.userData.noOutline = true;
+    }
+
+    // ── coat details: epaulettes and ragged tails ─────────────────────────
+    for (const sx of [-0.44, 0.44]) {
+      const ep = mesh(new THREE.SphereGeometry(0.11, 10, 8), goldMat, this.body, sx, 0.30, -0.04);
+      ep.scale.set(1, 0.5, 1);
+    }
+    for (const [tx, rz] of [[-0.16, 0.18], [0.14, -0.14]]) {
+      const tail = mesh(new THREE.ConeGeometry(0.10, 0.55, 6), coatMat, this.body, tx, -0.52, -0.34);
+      tail.rotation.set(0.45, 0, rz);
+    }
 
     // ── gold hoop earring, because she has one
     const hoop = mesh(new THREE.TorusGeometry(0.075, 0.018, 6, 14), goldMat, this.body, 0.47, 0.28, 0.10);
@@ -365,19 +402,31 @@ export class ProxyPeggyModel {
 
     // MELEE SWING. Drives straight off the controller's timer so the visual and
     // the hitbox can never disagree. Wind-up is fast and the follow-through is
-    // slow — the opposite reads as a limp wave.
+    // slow — the opposite reads as a limp wave. Each combo stage has its own
+    // shape: forehand, backhand (mirrored), then a full-body spin.
     const meleeT = peggy.meleeTimer > 0
-      ? 1 - (peggy.meleeTimer / peggy.T.meleeTime)   // 0 -> 1 across the swing
+      ? 1 - (peggy.meleeTimer / (peggy.meleeDuration || 0.32))   // 0 -> 1
       : -1;
     let swingX = 0, swingY = 0, swingZ = 0;
     if (meleeT >= 0) {
-      const windUp = clamp01(meleeT / 0.28);
-      const strike = clamp01((meleeT - 0.22) / 0.78);
-      swingX = lerp(0, -2.0, windUp) + lerp(0, 2.9, smoothstep(strike));
-      swingZ = lerp(0, 1.5, windUp) - lerp(0, 2.2, smoothstep(strike));
-      swingY = Math.sin(meleeT * Math.PI) * 0.5;
-      // the whole body turns into it
-      this.body.rotation.y = Math.sin(meleeT * Math.PI) * 0.42;
+      const stage = peggy.meleeStage || 0;
+      if (stage === 2) {
+        // THE SPIN: one full turn of the whole body, arm held out stiff, with a
+        // little crouch into it. Ease-in-out so it reads as a heave, not a top.
+        const spin = smoothstep(meleeT);
+        this.body.rotation.y = spin * TAU;
+        swingX = -1.1;
+        swingZ = 1.35;
+        this.body.position.y -= Math.sin(meleeT * Math.PI) * 0.08;
+      } else {
+        const mirror = stage === 1 ? -1 : 1;   // backhand comes from the other side
+        const windUp = clamp01(meleeT / 0.28);
+        const strike = clamp01((meleeT - 0.22) / 0.78);
+        swingX = lerp(0, -2.0, windUp) + lerp(0, 2.9, smoothstep(strike));
+        swingZ = (lerp(0, 1.5, windUp) - lerp(0, 2.2, smoothstep(strike))) * mirror;
+        swingY = Math.sin(meleeT * Math.PI) * 0.5 * mirror;
+        this.body.rotation.y = Math.sin(meleeT * Math.PI) * 0.42 * mirror;
+      }
     } else {
       this.body.rotation.y = damp(this.body.rotation.y, 0, 0.12, dt);
     }

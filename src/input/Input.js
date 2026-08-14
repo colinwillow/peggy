@@ -66,6 +66,8 @@ export class Input {
     this.meleeAngle = 0;
     /** 0..1 while the hook is being charged, for the reticle. */
     this.hookCharge = 0;
+    /** Aim-hold state: while active, the right stick steers the throw. */
+    this.hookAim = { active: false, x: 0, y: 0, mag: 0 };
 
     /** Which source produced the most recent input — used to swap the HUD. */
     this.lastSource = 'touch';
@@ -159,6 +161,11 @@ export class Input {
 
   /** Call once per frame, before anything reads the intent. */
   sample(dt) {
+    // A still hold produces no touchmove events, so aim activation has to be
+    // polled rather than event-driven.
+    this.stickL.pollAim();
+    this.stickR.pollAim();
+
     let mx = 0, my = 0, lx = 0, ly = 0;
     let jump = false, hook = false, melee = false, dive = false, recentre = false, pause = false;
 
@@ -167,7 +174,8 @@ export class Input {
       mx += this.stickL.x; my += -this.stickL.y;
       if (this.stickL.mag > 0.05) this.lastSource = 'touch';
     }
-    if (this.stickR.held && !this.stickR.muted && this.stickR.steadyOut) {
+    // While aiming, the stick belongs to the throw — no camera at all.
+    if (this.stickR.held && !this.stickR.muted && this.stickR.steadyOut && !this.stickR.aimActive) {
       // x only — the vertical axis is deliberately dropped, not merely unused.
       // And muted right after a flick, so a melee swipe doesn't whip the view.
       //
@@ -183,6 +191,10 @@ export class Input {
       }
     }
     this.hookCharge = this.stickR.holdCharge;
+    this.hookAim.active = this.stickR.aimActive;
+    this.hookAim.x = this.stickR.x;
+    this.hookAim.y = this.stickR.y;
+    this.hookAim.mag = this.stickR.mag;
 
     // keyboard
     const k = this._keys;

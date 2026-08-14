@@ -103,6 +103,14 @@ export class Joystick {
 
     /** 0..1 while a hold is charging, for UI. Zero at every other moment. */
     this.holdCharge = 0;
+    /**
+     * True once a CLEAN touch (no flick, no early drag) has rested long enough
+     * to become the hook-aim hold. From then on, deflection AIMS instead of
+     * turning the camera, and release throws. Cleared on lift.
+     */
+    this.aimActive = false;
+    this._draggedEarly = false;
+    this._flickedThisTouch = false;
     /** Last gesture recognised, for the on-screen readout: tap|hold|flick|drag */
     this.lastGesture = '';
     this._flicked = false;
@@ -196,6 +204,9 @@ export class Joystick {
     this._lastFrac = 0;
     this._radialSpeed = 0;
     this._outSince = 0;
+    this.aimActive = false;
+    this._draggedEarly = false;
+    this._flickedThisTouch = false;
     this._tapTravelled = false;
     this._tapPeak = 0;
     this._flicked = false;
@@ -229,12 +240,11 @@ export class Joystick {
       // A hold is the same motion as a tap, just sustained — and crucially it
       // must never have been pushed out, or it was a camera drag that happened
       // to start slowly.
-      const wasHold = !this._flicked && !wasTap
-        && held >= HOLD_MIN_MS && this._tapPeak < HOLD_MAX_PUSH;
+      const wasHold = this.aimActive && !this._flickedThisTouch;
       // A flick can be over before two touchmoves have landed, especially on a
       // slow frame — the speed test never gets a chance to see it. Catch that
       // on release: far out, and gone almost immediately.
-      const wasSnapFlick = !this._flicked && !wasTap && !wasHold
+      const wasSnapFlick = !this._flickedThisTouch && !wasTap && !wasHold
         && this._tapPeak >= FLICK_MAG && held < FLICK_SNAP_MS;
 
       this.touchId = null;
@@ -253,8 +263,9 @@ export class Joystick {
       }
 
       this.holdCharge = 0;
+      this.aimActive = false;
       this.lastGesture = wasTap ? 'tap' : wasHold ? 'hold'
-        : (this._flicked || wasSnapFlick) ? 'flick' : 'drag';
+        : (this._flickedThisTouch || wasSnapFlick) ? 'flick' : 'drag';
       if (this.onRelease) this.onRelease();
       if (wasTap && this.onTap) this.onTap();
       else if (wasHold && this.onHoldRelease) this.onHoldRelease();
@@ -311,20 +322,43 @@ export class Joystick {
     if (frac >= HOLD_MAX_PUSH) { if (!this._outSince) this._outSince = now; }
     else this._outSince = 0;
 
-    if (!this._flicked && frac >= FLICK_MAG && this._radialSpeed >= FLICK_SPEED) {
+    // A touch that pushes out BEFORE aim mode began is a camera drag, and it
+    // stays one for the rest of that touch — it can never turn into an aim, so
+    // ending a drag by resting the thumb can never accidentally throw a hook.
+    // Once aim IS active the same deflection means "steer the throw" instead.
+    if (frac >= HOLD_MAX_PUSH && !this.aimActive) this._draggedEarly = true;
+
+    if (!this._flicked && !this.aimActive
+        && frac >= FLICK_MAG && this._radialSpeed >= FLICK_SPEED) {
       this._fireFlick();
+    }
+  }
+
+  /**
+   * Called once per frame by Input.sample (touchmove events alone can't do
+   * this — a perfectly still hold generates none). Decides when a clean touch
+   * becomes the aim-hold, and runs the charge meter.
+   *
+   * The clean-touch rule is what keeps combos alive: a flick marks the whole
+   * touch, so mashing melee without lifting can never trip into aim mode and
+   * eat the next swing.
+   */
+  pollAim() {
+    if (!this.held || this._flickedThisTouch || this._draggedEarly) {
+      this.holdCharge = 0;
       return;
     }
-
-    // Charge only while the thumb stays inside the hold zone. Pushing out
-    // cancels it — that deflection belongs to the camera now.
-    this.holdCharge = (!this._flicked && frac < HOLD_MAX_PUSH)
-      ? clamp01((now - this._tapStart - TAP_MAX_MS) / 380)
-      : 0;
+    const t = performance.now() - this._tapStart;
+    if (!this.aimActive && t >= HOLD_MIN_MS) {
+      this.aimActive = true;
+      this.lastGesture = 'hold';
+    }
+    this.holdCharge = this.aimActive ? clamp01((t - HOLD_MIN_MS) / 380) : 0;
   }
 
   _fireFlick() {
     this._flicked = true;
+    this._flickedThisTouch = true;
     this._muteUntil = performance.now() + FLICK_MUTE_MS;
     this._outSince = 0;         // a flick can never count as a settled drag
     this.holdCharge = 0;

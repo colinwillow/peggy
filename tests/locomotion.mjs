@@ -408,6 +408,64 @@ const out = await page.evaluate(() => {
     r.groundHook.releasedToAir = P.state === 'air';
   }
 
+  // ── double jump ─────────────────────────────────────────────────────────
+  {
+    P.teleport(0, L.terrainHeight(0, 0) + 0.5, 0);
+    setMove(0, 0); step(60);
+    const gY = P.position.y;
+    press('jump'); step(1); release('jump');
+    step(44);                                   // past the apex, falling
+    const vyBefore = P.velocity.y;
+    press('jump'); step(1); release('jump');    // the double
+    const vyDouble = P.velocity.y;
+    step(10);
+    press('jump'); step(1); release('jump');    // a third must do nothing
+    const vyThird = P.velocity.y;
+    let peak = P.position.y, guard = 0;
+    while (!P.grounded && guard++ < 600) { step(1); peak = Math.max(peak, P.position.y); }
+    // grounded again: the air jump must come back
+    press('jump'); step(1); release('jump');
+    step(30);
+    press('jump'); step(1); release('jump');
+    const vyRefreshed = P.velocity.y;
+    r.doubleJump = {
+      vyBefore: +vyBefore.toFixed(2),
+      fired: vyDouble > 6,
+      thirdBlocked: vyThird < 6,
+      totalHeight: +(peak - gY).toFixed(2),
+      refreshed: vyRefreshed > 6,
+    };
+  }
+
+  // ── melee combo: forehand, backhand, spin ───────────────────────────────
+  {
+    P.teleport(6, L.terrainHeight(6, 4) + 0.5, 4);
+    P.facing = 0;
+    setMove(0, 0); step(120);
+    P._meleeCd = 0; P._comboT = 0; P.meleeTimer = 0;
+    const stages = [];
+    const behindHits = [];
+    for (let hit = 0; hit < 3; hit++) {
+      press('melee'); step(1); release('melee');
+      stages.push(P.meleeStage);
+      behindHits.push(P.meleeHits(P.position.x, P.position.y, P.position.z - 1.5));
+      // ride out the swing plus the chain beat, well inside the combo window
+      while (P.meleeTimer > 0) step(1);
+      step(16);
+    }
+    // let the window lapse, then swing again: must reset to stage 0
+    step(200);
+    press('melee'); step(1); release('melee');
+    const resetStage = P.meleeStage;
+    while (P.meleeTimer > 0) step(1);
+    r.combo = {
+      stages,
+      spinHitsBehind: behindHits[2],
+      earlyHitsBehindBlocked: !behindHits[0],
+      resetsAfterWindow: resetStage === 0,
+    };
+  }
+
   return r;
 });
 
@@ -464,6 +522,13 @@ const bools = [
   ['swing actually oscillates',         out.groundHook.oscillates],
   ['rope shortened to clear ground',    out.groundHook.ropeClearsGround],
   ['releasing throws her into the air', out.groundHook.releasedToAir],
+  ['double jump fires mid-air',         out.doubleJump.fired],
+  ['third air jump is blocked',         out.doubleJump.thirdBlocked],
+  ['air jump refreshes on landing',     out.doubleJump.refreshed],
+  ['combo chains 0 -> 1 -> 2',          out.combo.stages.join('') === '012'],
+  ['the spin hits all the way round',   out.combo.spinHitsBehind],
+  ['the forehand does not hit behind',  out.combo.earlyHitsBehindBlocked],
+  ['combo resets after the window',     out.combo.resetsAfterWindow],
   ['swing holds the rope',              out.hook.stateLater === 'swinging' && out.hook.ropeLength > 1],
   ['never falls through the world',     out.fellThrough.below === 0],
   ['no console errors',                 errors.filter((e) => !/peggy\.glb|404/.test(e)).length === 0],

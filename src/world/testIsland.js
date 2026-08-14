@@ -201,21 +201,83 @@ export function buildTestIsland(scene) {
     box(mx - 1.1, base + 15.4, mz - 1.1, 2.2, 0.3, 2.2, woodDarkMat);
   }
 
-  // ── the wreck: reel anchors + a roof ─────────────────────────────────────
+  // ── the ship: a beached galleon, and the reel-anchor course ──────────────
+  // Collision stays the two simple boxes (hull volume + walkable deck) so the
+  // controller's world is unchanged; everything else is dressing built in a
+  // yawed group so the whole vessel can sit at an angle on the sand.
   {
-    const wx = 30, wz = 20;
+    const wx = 30, wz = 20, yaw = 0.42;
     const base = g(wx, wz);
-    // hull, listing to one side
-    const hull = box(wx, base - 0.6, wz, 14, 4.4, 6.2, woodMat, 0.42, 'hull');
-    hull.rotation.z = 0.16;
-    // deck on top
-    box(wx, base + 3.6, wz, 12, 0.5, 5, woodDarkMat, 0.42);
-    // a broken mast leaning off it
-    const broken = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.42, 11, 10), woodMat);
-    broken.position.set(wx + 3, base + 5, wz + 2);
-    broken.rotation.set(0.6, 0.3, 0.5);
-    broken.castShadow = true;
-    props.add(broken);
+
+    box(wx, base - 0.6, wz, 14, 4.4, 6.2, woodMat, yaw, 'hull');
+    box(wx, base + 3.6, wz, 12, 0.5, 5, woodDarkMat, yaw);          // the deck
+    box(wx - Math.sin(yaw) * 4.6, base + 4.1, wz - Math.cos(yaw) * 4.6,
+        4.6, 1.9, 4.4, woodMat, yaw);                               // quarterdeck
+
+    const ship = new THREE.Group();
+    ship.position.set(wx, base, wz);
+    ship.rotation.y = yaw;
+    props.add(ship);
+    const sm = (geo, m, x, y, z) => {
+      const o = new THREE.Mesh(geo, m);
+      o.position.set(x, y, z);
+      o.castShadow = true;
+      ship.add(o);
+      return o;
+    };
+
+    // hull strakes: planking rows that flare outward as they rise, which is
+    // what turns two boxes into something that reads as a hull
+    for (let row = 0; row < 4; row++) {
+      const y = 0.2 + row * 1.0;
+      const flare = 3.15 + row * 0.28;
+      const len = 13.2 + row * 0.9;
+      for (const side of [-1, 1]) {
+        const strake = sm(new THREE.BoxGeometry(len, 1.05, 0.24),
+          row % 2 ? woodMat : woodDarkMat, 0, y, side * flare);
+        strake.rotation.x = side * -0.16;
+      }
+    }
+    // gold trim line along the top strake
+    for (const side of [-1, 1]) {
+      sm(new THREE.BoxGeometry(15.4, 0.16, 0.1), goldMat, 0, 3.42, side * 4.05);
+    }
+    // bow: a tapered prow + bowsprit
+    const bow = sm(new THREE.ConeGeometry(2.4, 5.2, 8), woodMat, 8.6, 1.7, 0);
+    bow.rotation.z = -Math.PI / 2;
+    bow.scale.set(1, 1, 0.72);
+    const sprit = sm(new THREE.CylinderGeometry(0.10, 0.16, 5.4, 7), woodDarkMat, 11.6, 3.6, 0);
+    sprit.rotation.z = -1.12;
+    // stern transom + lanterns
+    sm(new THREE.BoxGeometry(0.6, 3.6, 5.6), woodDarkMat, -7.2, 2.6, 0);
+    for (const lz of [-1.8, 1.8]) {
+      sm(new THREE.SphereGeometry(0.22, 8, 6), goldMat, -7.6, 4.6, lz);
+    }
+    // railing posts along both bulwarks
+    for (let i = 0; i < 9; i++) {
+      const x = -5.4 + i * 1.35;
+      for (const side of [-1, 1]) {
+        sm(new THREE.BoxGeometry(0.12, 0.8, 0.12), woodDarkMat, x, 4.2, side * 2.45);
+      }
+    }
+    for (const side of [-1, 1]) {
+      sm(new THREE.BoxGeometry(12.4, 0.12, 0.16), woodMat, 0.5, 4.62, side * 2.45);
+    }
+    // two masts, yards, sails, and the colours
+    for (const [mxOff, mh] of [[2.2, 10.5], [-3.4, 8.5]]) {
+      sm(new THREE.CylinderGeometry(0.22, 0.30, mh, 8), woodMat, mxOff, 3.8 + mh / 2, 0);
+      const yard = sm(new THREE.CylinderGeometry(0.11, 0.11, 6.4, 6), woodDarkMat, mxOff, 3.8 + mh * 0.78, 0);
+      yard.rotation.x = Math.PI / 2;
+      const sail = sm(new THREE.PlaneGeometry(5.6, mh * 0.42), sailMat, mxOff - 0.4, 3.8 + mh * 0.55, 0);
+      sail.rotation.y = Math.PI / 2;
+      sail.castShadow = false;
+    }
+    // the black flag
+    const flag = sm(new THREE.PlaneGeometry(1.9, 1.1), toonMaterial({ color: 0x2a2438, side: THREE.DoubleSide }), 2.2 + 1.1, 3.8 + 10.5 + 0.4, 0);
+    flag.rotation.y = Math.PI / 2;
+    flag.castShadow = false;
+    const skullDot = sm(new THREE.SphereGeometry(0.16, 8, 6), toonMaterial({ color: 0xf0e6cf }), 2.2 + 1.1, 3.8 + 10.5 + 0.4, 0.02);
+    skullDot.scale.set(1, 0.9, 0.4);
 
     // reel anchors: at body height, so they yank you across rather than up
     anchor(wx - 8.5, base + 4.2, wz - 2.0, 'anchor');
@@ -230,17 +292,30 @@ export function buildTestIsland(scene) {
   for (const [px, pz] of palmSpots) {
     const base = g(px, pz);
     if (base < 1.2) continue;
-    const lean = rand(-0.18, 0.18);
+    const lean = rand(-0.22, 0.22);
     const h = rand(4.5, 7.5);
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.20, 0.34, h, 8), trunkMat);
-    trunk.position.set(px, base + h / 2, pz);
-    trunk.rotation.z = lean;
-    trunk.castShadow = true;
-    props.add(trunk);
+    // Curved trunk: five stacked segments, each tipped a little further, so it
+    // sweeps like a palm instead of standing like a telegraph pole.
+    const segs = 5;
+    let tx = px, ty = base, tzz = pz, tilt = lean;
+    for (let si = 0; si < segs; si++) {
+      const sh = h / segs;
+      const seg = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.30 - si * 0.038, 0.34 - si * 0.038, sh * 1.15, 8),
+        trunkMat
+      );
+      seg.position.set(tx + Math.sin(tilt) * sh * 0.5, ty + sh * 0.5, tzz);
+      seg.rotation.z = -tilt;
+      seg.castShadow = true;
+      props.add(seg);
+      tx += Math.sin(tilt) * sh;
+      ty += Math.cos(tilt) * sh * 0.98;
+      tilt += lean * 0.55;
+    }
     level.addSolid(new CylinderSolid(new THREE.Vector3(px, base + h / 2, pz), 0.36, h / 2, 'palm'));
 
     const crown = new THREE.Group();
-    crown.position.set(px + Math.sin(lean) * h * 0.5, base + h, pz);
+    crown.position.set(tx, ty, tzz);
     const fronds = 9;
     for (let i = 0; i < fronds; i++) {
       const a = (i / fronds) * TAU + rand(-0.2, 0.2);
@@ -433,6 +508,108 @@ export function buildTestIsland(scene) {
     }
     // a lamp post at the end, with a swing ring — the easy way back to shore
     anchor(-1.6, 6.2, dz + 2, 'swing');
+  }
+
+  // ── rocks: silhouette breakers along the coast ───────────────────────────
+  {
+    const rockMat = toonMaterial({ color: 0x9a8d7d, rimStrength: 0.35 });
+    const rockDark = toonMaterial({ color: 0x7d7060, rimStrength: 0.3 });
+    const spots = [
+      [-18, -34, 1.9], [24, -30, 1.3], [40, 8, 1.6], [-32, 22, 2.2],
+      [-6, 36, 1.1], [14, 34, 0.8], [-40, -12, 1.4], [52, -14, 1.0],
+      [70, -34, 1.5], [86, -20, 1.1],
+    ];
+    for (const [rx, rz, rs] of spots) {
+      const ry = g(rx, rz);
+      if (ry < -3) continue;
+      const rock = new THREE.Mesh(new THREE.IcosahedronGeometry(rs, 0), Math.random() < 0.5 ? rockMat : rockDark);
+      rock.position.set(rx, ry + rs * 0.35, rz);
+      rock.rotation.set(rand(0, 3), rand(0, 3), rand(0, 3));
+      rock.scale.set(1, rand(0.6, 0.9), rand(0.8, 1.2));
+      rock.castShadow = true;
+      rock.receiveShadow = true;
+      props.add(rock);
+      if (rs > 1.4) {
+        level.addSolid(new CylinderSolid(new THREE.Vector3(rx, ry + rs * 0.35, rz), rs * 0.8, rs * 0.5, 'rock'));
+      }
+    }
+  }
+
+  // ── grass and flowers: two instanced meshes, two draw calls ──────────────
+  // This is most of what turns "green heightfield" into "meadow". Instancing
+  // keeps it essentially free; each blade is a cone with a per-instance tint.
+  {
+    const tuftGeo = new THREE.ConeGeometry(0.09, 0.55, 5);
+    tuftGeo.translate(0, 0.24, 0);
+    const tuftMat = toonMaterial({ color: 0xffffff, rimStrength: 0.2 });
+    const tufts = new THREE.InstancedMesh(tuftGeo, tuftMat, 460);
+    const m4 = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const YUP = new THREE.Vector3(0, 1, 0);
+    const cA = new THREE.Color(0x3da84c), cB = new THREE.Color(0x86e06a);
+    const tint = new THREE.Color();
+    let n = 0;
+    for (let tries = 0; tries < 6000 && n < 460; tries++) {
+      const x = rand(-72, 72), z = rand(-72, 72);
+      const y = g(x, z);
+      if (y < 2.0 || y > 9.6) continue;
+      if (level.terrainNormal(x, z).y < 0.86) continue;
+      q.setFromAxisAngle(YUP, rand(0, TAU));
+      const sc = rand(0.7, 1.7);
+      m4.compose(new THREE.Vector3(x, y - 0.03, z), q, new THREE.Vector3(sc, rand(0.7, 1.5), sc));
+      tufts.setMatrixAt(n, m4);
+      tufts.setColorAt(n, tint.copy(cA).lerp(cB, Math.random()));
+      n++;
+    }
+    tufts.count = n;
+    tufts.receiveShadow = true;
+    if (tufts.instanceColor) tufts.instanceColor.needsUpdate = true;
+    props.add(tufts);
+
+    const petalGeo = new THREE.SphereGeometry(0.09, 6, 5);
+    petalGeo.translate(0, 0.22, 0);
+    const petalMat = toonMaterial({ color: 0xffffff, rimStrength: 0.3 });
+    const flowers = new THREE.InstancedMesh(petalGeo, petalMat, 90);
+    const fCols = [new THREE.Color(0xfff4f8), new THREE.Color(0xff7ab0), new THREE.Color(0xffd76a)];
+    let fn = 0;
+    for (let tries = 0; tries < 3000 && fn < 90; tries++) {
+      const x = rand(-68, 68), z = rand(-68, 68);
+      const y = g(x, z);
+      if (y < 2.4 || y > 8.8) continue;
+      if (level.terrainNormal(x, z).y < 0.9) continue;
+      q.setFromAxisAngle(YUP, rand(0, TAU));
+      const sc = rand(0.7, 1.2);
+      m4.compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(sc, sc, sc));
+      flowers.setMatrixAt(fn, m4);
+      flowers.setColorAt(fn, fCols[(Math.random() * fCols.length) | 0]);
+      fn++;
+    }
+    flowers.count = fn;
+    if (flowers.instanceColor) flowers.instanceColor.needsUpdate = true;
+    props.add(flowers);
+  }
+
+  // ── clouds: soft stacks drifting over the sea ────────────────────────────
+  {
+    const cloudMat = toonMaterial({ color: 0xffffff, rimStrength: 0.12, rimColor: 0xfff6e0 });
+    for (let ci = 0; ci < 6; ci++) {
+      const cl = new THREE.Group();
+      const k = rand(0.8, 1.7);
+      for (let b = 0; b < 5; b++) {
+        const puff = new THREE.Mesh(new THREE.SphereGeometry(rand(2.4, 4.4) * k, 10, 8), cloudMat);
+        puff.position.set(rand(-5, 5) * k, rand(-0.8, 0.8), rand(-2.2, 2.2) * k);
+        puff.scale.y = 0.52;
+        cl.add(puff);
+      }
+      cl.position.set(rand(-170, 170), rand(46, 82), rand(-170, 170));
+      const drift = rand(1.0, 2.2);
+      cl.userData.openAnim = (dt) => {
+        cl.position.x += drift * dt;
+        if (cl.position.x > 230) cl.position.x = -230;
+      };
+      animated.push(cl);
+      props.add(cl);
+    }
   }
 
   // ── spawn point: on the beach, facing inland ────────────────────────────

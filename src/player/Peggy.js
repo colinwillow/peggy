@@ -73,14 +73,22 @@ const TUNING = {
   waterEntrySpeed: 0.55,  // vertical velocity retained when you hit the water
   swimDepth: 0.62,        // how far below the surface her body floats
 
-  // ── melee: the hook swipe ───────────────────────────────────────────────
-  // She swings the hook in a short arc in front of her. Short and committed:
-  // long enough to read as a real swing, short enough to chain flicks.
-  meleeTime: 0.34,        // seconds the swing owns her
-  meleeLunge: 4.2,        // m/s forward, so a swipe closes distance
-  meleeRange: 2.3,        // reach from her centre
-  meleeArc: 1.5,          // radians of the cone she sweeps
-  meleeCooldown: 0.16,    // gap before the next swing can start
+  // ── air jumps ───────────────────────────────────────────────────────────
+  airJumps: 1,            // how many extra jumps she gets after leaving the ground
+  airJumpSpeed: 8.2,      // slightly under the ground jump, so the first is king
+
+  // ── melee: a three-hit combo ────────────────────────────────────────────
+  // Flick, flick, flick: forehand, backhand, then a full spin. Each stage is
+  // its own tuning row because the third hit has to feel like a finisher, not
+  // a third copy of the first — longer, wider (a full circle), harder.
+  meleeStages: [
+    { time: 0.32, lunge: 4.2, range: 2.3, arc: 1.5,          power: 11 },
+    { time: 0.30, lunge: 4.6, range: 2.4, arc: 1.7,          power: 12 },
+    { time: 0.52, lunge: 5.6, range: 2.8, arc: Math.PI * 2,  power: 17 },
+  ],
+  comboWindow: 0.60,      // seconds after a swing ends to chain the next stage
+  comboCooldown: 0.10,    // beat between chained swings
+  finisherCooldown: 0.42, // longer recovery after the spin
 };
 
 export class Peggy {
@@ -118,7 +126,15 @@ export class Peggy {
 
     /** Counts down while a melee swing owns her. */
     this.meleeTimer = 0;
+    /** Which combo stage the current/last swing was: 0 forehand, 1 backhand, 2 spin. */
+    this.meleeStage = 0;
+    /** Duration of the current swing — stages differ, so the model reads this. */
+    this.meleeDuration = 0.32;
     this._meleeCd = 0;
+    this._comboT = 0;
+    this._meleeQueued = false;
+    this._meleeS = null;
+    this._airJumpsLeft = 1;
 
     /** Set by Hook.js while a grapple owns the movement. */
     this.hookOverride = null;
@@ -173,12 +189,25 @@ export class Peggy {
     this._waterLock = Math.max(0, this._waterLock - dt);
     this.meleeTimer = Math.max(0, this.meleeTimer - dt);
     this._meleeCd = Math.max(0, this._meleeCd - dt);
+    this._comboT = Math.max(0, this._comboT - dt);
     this._updateWaterState();
+
+    // Air jumps come back whenever anything re-anchors her to the world.
+    if (this.grounded || this.inWater || this.hookOverride) {
+      this._airJumpsLeft = this.T.airJumps;
+    }
 
     // Melee is available from anywhere except a grapple — swinging the hook
     // mid-air is half the point of having it.
-    if (buttons.melee && buttons.melee.pressed && this._meleeCd <= 0 && !this.hookOverride) {
-      this._startMelee(camYaw, buttons.meleeAngle);
+    if (buttons.melee && buttons.melee.pressed && !this.hookOverride) {
+      if (this._meleeCd <= 0) this._startMelee(camYaw, buttons.meleeAngle);
+      // Flicked during the current swing: queue it, so mashing chains the
+      // combo instead of dropping every input that lands mid-animation.
+      else if (this.meleeTimer > 0) this._meleeQueued = true;
+    }
+    if (this._meleeQueued && this._meleeCd <= 0 && !this.hookOverride) {
+      this._meleeQueued = false;
+      if (this._comboT > 0) this._startMelee(camYaw, buttons.meleeAngle);
     }
 
     if (this.hookOverride) {
@@ -309,14 +338,22 @@ export class Peggy {
     const g = this.velocity.y > 0 ? T.gravity : T.fallGravity;
     this.velocity.y = Math.max(this.velocity.y - g * dt, -T.maxFall);
 
-    // Late jump off a ledge you already left.
+    // Late jump off a ledge you already left — and past that window, the
+    // DOUBLE JUMP. No flip animation yet; the second jump just resets the arc.
     if (buttons.jump.pressed) this._jumpBuffered = T.jumpBuffer;
     this._jumpBuffered = Math.max(0, this._jumpBuffered - dt);
-    if (this._jumpBuffered > 0 && this._coyote > 0) {
-      this._jumpBuffered = 0;
-      this._coyote = 0;
-      this.velocity.y = T.jumpSpeed;
-      this.emit('jump', { speed: this.speedRatio, coyote: true });
+    if (this._jumpBuffered > 0) {
+      if (this._coyote > 0) {
+        this._jumpBuffered = 0;
+        this._coyote = 0;
+        this.velocity.y = T.jumpSpeed;
+        this.emit('jump', { speed: this.speedRatio, coyote: true });
+      } else if (this._airJumpsLeft > 0) {
+        this._jumpBuffered = 0;
+        this._airJumpsLeft--;
+        this.velocity.y = T.airJumpSpeed;
+        this.emit('jump', { speed: this.speedRatio, air: true });
+      }
     }
 
     const top = lerp(T.walkSpeed, T.runSpeed, this.momentum);
@@ -423,8 +460,15 @@ export class Peggy {
    * flicking left swipes left — otherwise she swings where she's facing.
    */
   _startMelee(camYaw, flickAngle) {
-    this.meleeTimer = this.T.meleeTime;
-    this._meleeCd = this.T.meleeTime + this.T.meleeCooldown;
+    const T = this.T;
+    // Chain while the window is open; the spin always ends the chain.
+    this.meleeStage = (this._comboT > 0 && this.meleeStage < 2) ? this.meleeStage + 1 : 0;
+    const S = T.meleeStages[this.meleeStage];
+    this._meleeS = S;
+    this.meleeDuration = S.time;
+    this.meleeTimer = S.time;
+    this._meleeCd = S.time + (this.meleeStage === 2 ? T.finisherCooldown : T.comboCooldown);
+    this._comboT = this.meleeStage === 2 ? 0 : S.time + T.comboWindow;
 
     if (flickAngle != null) {
       // screen-space flick -> world. Same basis as movement: forward is
@@ -438,28 +482,32 @@ export class Peggy {
 
     // Lunge, so a swipe closes distance instead of flailing on the spot.
     const f = this.forward(this._tmp);
-    this.velocity.x += f.x * this.T.meleeLunge;
-    this.velocity.z += f.z * this.T.meleeLunge;
+    this.velocity.x += f.x * S.lunge;
+    this.velocity.z += f.z * S.lunge;
 
     this.emit('melee', {
       x: this.position.x, z: this.position.z,
       y: this.position.y + this.T.height * 0.6,
       facing: this.facing,
-      range: this.T.meleeRange,
-      arc: this.T.meleeArc,
+      stage: this.meleeStage,
+      range: S.range,
+      arc: S.arc,
+      power: S.power,
     });
   }
 
   /** True if a world point is inside the current swing's cone. */
   meleeHits(x, y, z) {
-    if (this.meleeTimer <= 0) return false;
+    if (this.meleeTimer <= 0 || !this._meleeS) return false;
+    const S = this._meleeS;
     const dx = x - this.position.x, dz = z - this.position.z;
     const d = Math.hypot(dx, dz);
-    if (d > this.T.meleeRange || d < 0.01) return false;
+    if (d > S.range || d < 0.01) return false;
     if (Math.abs(y - this.position.y) > this.T.height * 1.4) return false;
+    if (S.arc >= Math.PI * 2) return true;   // the spin hits all the way round
     const f = this.forward(this._tmp);
     const dot = (dx * f.x + dz * f.z) / d;
-    return dot > Math.cos(this.T.meleeArc * 0.5);
+    return dot > Math.cos(S.arc * 0.5);
   }
 
   // ── shared movement helpers ─────────────────────────────────────────────

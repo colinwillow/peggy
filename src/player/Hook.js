@@ -66,6 +66,12 @@ export class Hook {
 
     this._dir = new THREE.Vector3();
     this._tmp = new THREE.Vector3();
+    /**
+     * Set by the aim-hold: while the player steers the throw with the stick,
+     * this replaces the camera heading. Latched across the release frame (the
+     * stick zeroes before the throw fires) and cleared once consumed.
+     */
+    this.aimOverride = null;
     this.events = [];
   }
 
@@ -93,6 +99,7 @@ export class Hook {
    * honest input and the one the player can actually steer.
    */
   aimDirection(out = new THREE.Vector3()) {
+    if (this.aimOverride) return out.copy(this.aimOverride);
     this.camera.getWorldDirection(out);
     out.y = 0;
     if (out.lengthSq() < 1e-6) return this.peggy.forward(out);
@@ -130,6 +137,8 @@ export class Hook {
       this.head, this._dir, HOOK.range, HOOK.aimAssistCone
     );
     this.targetHaulable = this.target ? null : this._findHaulable(this.head, this._dir);
+
+    this.aimOverride = null;   // consumed by this throw
 
     const goal = this.target ? this.target.pos : this.targetHaulable?.position;
     if (goal) {

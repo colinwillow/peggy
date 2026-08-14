@@ -49,9 +49,9 @@ you're on.
 | Turn camera | right stick, **horizontal only** | mouse X, or `Q`/`E` | right stick X |
 | Centre camera | **tap** left stick | `R` | L3 |
 | Dive | **flick** left stick down | `C` | B |
-| Jump / **Interact** | **tap** right stick | `Space` | A |
-| Melee | **flick** right stick | click, or `V` | X |
-| Hook | **hold** right stick, release | `F` | RT |
+| Jump / **Interact** | **tap** right stick — tap again in the air to **double jump** | `Space` | A |
+| Melee combo | **flick** right stick — chain three: forehand, backhand, spin | click, or `V` | X |
+| Hook | **hold** right stick to aim, release to throw | `F` | RT |
 
 ### The four gestures
 
@@ -60,10 +60,22 @@ by deflection over time:
 
 | Gesture | Motion | Verb |
 |---|---|---|
-| **tap** | down, barely moves, up fast | jump |
-| **hold** | down, stays near centre, up after a beat | throw the hook |
-| **flick** | snapped out fast and far | melee swipe |
+| **tap** | down, barely moves, up fast | jump (again in the air: double jump) |
+| **hold** | down, rest a beat — then the stick AIMS | aim the hook; release throws |
+| **flick** | snapped out fast and far | melee — chain three for the combo |
 | **push** | out and sustained | steer the camera |
+
+**Holding shows the throw.** From the moment the hold engages, a dashed gold
+arc draws the rope's flight path, the lock-on diamond marks what the assist
+has picked, and deflecting the stick steers the throw — release to commit.
+A touch that starts as a camera drag can never become an aim, and a touch
+that has flicked can never become one either, so combo mashing and camera
+play never trip into a hook throw.
+
+**The melee is a three-hit combo.** Forehand, backhand, then a full spin that
+hits all the way around and hits harder — each stage has its own animation
+and swipe trail, and the chain window is ~0.6s, so it reads as rhythm rather
+than mashing. Flicks landed mid-swing are queued, not dropped.
 
 Tap and hold are the same motion split by *duration*; flick and push are the
 same motion split by **speed** — radial deflection per second, not "got far

@@ -148,9 +148,9 @@ export class Water {
       // which is what keeps the vertex displacement from going faceted.
       size = 1400,
       segments = 340,
-      shallow = 0x53d7c8,
-      deep = 0x0f5a86,
-      foam = 0xf2fbff,
+      shallow = 0x5ce9d1,
+      deep = 0x0d64a2,
+      foam = 0xf7feff,
       foamWidth = 2.6,
       sunDir = new THREE.Vector3(38, 60, 26).normalize(),
       depthScale = 0.5,

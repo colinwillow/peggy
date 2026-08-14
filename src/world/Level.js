@@ -370,10 +370,10 @@ export class Level {
     const pos = geo.attributes.position;
     const colors = new Float32Array(pos.count * 3);
 
-    const sand = new THREE.Color(0xf0dfae);
-    const grass = new THREE.Color(0x5fbf5a);
-    const rock = new THREE.Color(0x8d8479);
-    const wet = new THREE.Color(0xcbb98c);
+    const sand = new THREE.Color(0xf6e7b2);
+    const grass = new THREE.Color(0x58cd63);
+    const rock = new THREE.Color(0x9a8b7a);
+    const wet = new THREE.Color(0xdcc896);
     const tmp = new THREE.Color();
 
     for (let i = 0; i < pos.count; i++) {

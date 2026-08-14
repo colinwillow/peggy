@@ -133,6 +133,47 @@ async function boot() {
   hookHead.castShadow = true;
   scene.add(hookHead);
 
+  // ── the spin finisher's ring (combo stage 3) ─────────────────────────────
+  const spinGeo = new THREE.RingGeometry(1.05, 2.9, 40);
+  const spinMat = new THREE.MeshBasicMaterial({
+    color: 0xffd27a, transparent: true, opacity: 0, side: THREE.DoubleSide,
+    depthWrite: false, blending: THREE.AdditiveBlending,
+  });
+  const spinRing = new THREE.Mesh(spinGeo, spinMat);
+  spinRing.rotation.x = -Math.PI / 2;
+  spinRing.visible = false;
+  spinRing.renderOrder = 20;
+  scene.add(spinRing);
+
+  // ── hook aim: trajectory arc + lock-on marker ────────────────────────────
+  // The arc is what makes the hold legible: from the moment aim mode engages
+  // you can SEE the rope's flight path, watch it snap onto an anchor when the
+  // assist locks, and release with confidence. Dashed, so it reads as a
+  // prediction rather than as an already-thrown rope.
+  const AIM_PTS = 26;
+  const aimGeo = new THREE.BufferGeometry();
+  aimGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(AIM_PTS * 3), 3));
+  const aimLine = new THREE.Line(aimGeo, new THREE.LineDashedMaterial({
+    color: 0xffd97a, dashSize: 0.45, gapSize: 0.28,
+    transparent: true, opacity: 0.95, depthWrite: false,
+  }));
+  aimLine.visible = false;
+  aimLine.renderOrder = 21;
+  aimLine.frustumCulled = false;
+  scene.add(aimLine);
+
+  const lockMarker = new THREE.Mesh(
+    new THREE.OctahedronGeometry(0.34),
+    new THREE.MeshBasicMaterial({ color: 0xffd97a, transparent: true, opacity: 0.95, depthWrite: false })
+  );
+  lockMarker.visible = false;
+  lockMarker.renderOrder = 21;
+  scene.add(lockMarker);
+  const aimCurve = new THREE.QuadraticBezierCurve3(
+    new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()
+  );
+  const aimVec = new THREE.Vector3();
+
   // ── input + hud ──────────────────────────────────────────────────────────
   const dom = {
     canvas,
@@ -188,27 +229,84 @@ async function boot() {
       promptTarget = null;
     }
 
+    // ── hook aim-hold ──────────────────────────────────────────────────────
+    // While the hold is active the stick steers the throw. The override is set
+    // BEFORE hook.update and left in place across the release frame — the stick
+    // zeroes on lift, so without the latch every steered throw would revert to
+    // the camera heading at the last instant. Hook clears it when it fires.
+    const aiming = input.hookAim.active;
+    if (aiming && input.hookAim.mag > 0.30) {
+      const c = Math.cos(follow.yaw), sn = Math.sin(follow.yaw);
+      const sx = input.hookAim.x, sy = -input.hookAim.y;   // screen y is down
+      aimVec.set(sx * c - sy * sn, 0, -sx * sn - sy * c).normalize();
+      hook.aimOverride = aimVec;
+    } else if (!aiming && !input.hook.pressed && !hook.active) {
+      hook.aimOverride = null;
+    }
+
     peggy.update(dt, input.move, input, follow.yaw);
     if (input.recentre.pressed) follow.recentre(peggy);
     hook.update(dt, input, input.move);
     follow.update(dt, peggy, input.look);
+
+    // ── aim arc + lock-on ──────────────────────────────────────────────────
+    if (aiming && !hook.active) {
+      const hand = hook.handPosition(_v);
+      const dir = hook.aimDirection(_v2);
+      const target = level.findGrapplePoint(hand, dir, 17, 0.28);
+      const end = target
+        ? target.pos
+        : aimCurve.v2.set(hand.x + dir.x * 9.5, hand.y + 1.2, hand.z + dir.z * 9.5);
+
+      aimCurve.v0.copy(hand);
+      aimCurve.v2.copy(end);
+      aimCurve.v1.set(
+        (hand.x + end.x) / 2,
+        Math.max(hand.y, end.y) + 1.6,   // the throw arcs; the line should too
+        (hand.z + end.z) / 2
+      );
+      const pos = aimLine.geometry.attributes.position;
+      for (let i = 0; i < AIM_PTS; i++) {
+        aimCurve.getPoint(i / (AIM_PTS - 1), _v2);
+        pos.setXYZ(i, _v2.x, _v2.y, _v2.z);
+      }
+      pos.needsUpdate = true;
+      aimLine.computeLineDistances();
+      aimLine.visible = true;
+
+      if (target) {
+        lockMarker.visible = true;
+        lockMarker.position.copy(target.pos);
+        lockMarker.rotation.y += dt * 3.2;
+        lockMarker.scale.setScalar(1 + Math.sin(performance.now() * 0.012) * 0.18);
+      } else {
+        lockMarker.visible = false;
+      }
+    } else {
+      aimLine.visible = false;
+      lockMarker.visible = false;
+    }
 
     updateLoose(dt, water);
 
     // ── react to what happened ─────────────────────────────────────────────
     for (const e of peggy.drainEvents()) {
       if (e.type === 'melee') {
-        follow.addTrauma(0.10);
+        follow.addTrauma(e.stage === 2 ? 0.22 : 0.10);
         // Anything loose inside the swing arc gets sent flying. This is the
         // only feedback a flick has until there are enemies, and without it the
-        // gesture feels like it didn't register.
+        // gesture feels like it didn't register. The finisher hits harder.
         for (const h of loose) {
           if (h.held || !peggy.meleeHits(h.position.x, h.position.y, h.position.z)) continue;
           const dx = h.position.x - e.x, dz = h.position.z - e.z;
           const d = Math.hypot(dx, dz) || 1;
-          knock(h, dx / d, dz / d, 11);
+          knock(h, dx / d, dz / d, e.power || 11);
           follow.addTrauma(0.14);
         }
+      } else if (e.type === 'jump' && e.air) {
+        // Double jump: a small kick so the second jump reads as its own beat.
+        model.impact(2.2);
+        follow.addTrauma(0.05);
       } else if (e.type === 'land') {
         model.impact(e.impact);
         if (e.impact > 9) follow.addTrauma(clamp01((e.impact - 9) / 22) * 0.4);
@@ -253,23 +351,39 @@ async function boot() {
       hookHead.visible = false;
     }
 
-    // ── melee swipe arc ────────────────────────────────────────────────────
+    // ── melee swipe arcs, one look per combo stage ─────────────────────────
     if (peggy.meleeTimer > 0) {
-      const t = clamp01(1 - peggy.meleeTimer / peggy.T.meleeTime);   // 0 -> 1
-      swipePivot.visible = true;
-      swipePivot.position.set(
-        peggy.position.x,
-        peggy.position.y + peggy.T.height * 0.55,
-        peggy.position.z
-      );
-      // Sweep through the arc as the swing lands: leads from her hook side and
-      // carries across the front.
-      swipePivot.rotation.y = peggy.facing - 1.15 + t * 2.3;
-      swipePivot.scale.setScalar(0.62 + t * 0.5);
-      // bright at the strike, gone by the follow-through
-      swipeMat.opacity = Math.sin(t * Math.PI) * 0.9;
+      const t = clamp01(1 - peggy.meleeTimer / (peggy.meleeDuration || 0.32));
+      const stage = peggy.meleeStage || 0;
+      if (stage === 2) {
+        // the spin: a full expanding ring around her
+        swipePivot.visible = false;
+        spinRing.visible = true;
+        spinRing.position.set(
+          peggy.position.x,
+          peggy.position.y + peggy.T.height * 0.5,
+          peggy.position.z
+        );
+        spinRing.rotation.z = t * 6.0;
+        spinRing.scale.setScalar(0.45 + t * 0.75);
+        spinMat.opacity = Math.sin(t * Math.PI) * 0.95;
+      } else {
+        spinRing.visible = false;
+        swipePivot.visible = true;
+        swipePivot.position.set(
+          peggy.position.x,
+          peggy.position.y + peggy.T.height * 0.55,
+          peggy.position.z
+        );
+        // forehand sweeps one way, backhand the other
+        const dir = stage === 1 ? -1 : 1;
+        swipePivot.rotation.y = peggy.facing + (-1.15 + t * 2.3) * dir;
+        swipePivot.scale.setScalar(0.62 + t * 0.5);
+        swipeMat.opacity = Math.sin(t * Math.PI) * 0.9;
+      }
     } else {
       swipePivot.visible = false;
+      spinRing.visible = false;
     }
 
     // ── underwater grade ───────────────────────────────────────────────────
@@ -298,7 +412,8 @@ async function boot() {
 
       // Contextual hint — what the hook would do if you fired right now.
       let hint = '';
-      if (hook.state === HookState.SWINGING) hint = 'PUSH FORWARD TO CLIMB · TAP TO RELEASE';
+      if (input.hookAim.active && !hook.active) hint = 'AIMING · STEER WITH THE STICK · RELEASE TO THROW';
+      else if (hook.state === HookState.SWINGING) hint = 'PUSH FORWARD TO CLIMB · TAP TO RELEASE';
       else if (hook.state === HookState.REELING) hint = 'REELING IN';
       else if (peggy.state === State.DIVE) hint = 'HOLD JUMP TO RISE · HOLD DIVE TO SINK';
       else if (peggy.state === State.SWIM) hint = 'TAP DIVE TO GO UNDER';

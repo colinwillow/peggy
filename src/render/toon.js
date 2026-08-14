@@ -209,8 +209,8 @@ export function addOutline(target, opts = {}) {
  */
 export function setupLights(scene, opts = {}) {
   const {
-    keyColor = 0xfff0d0,
-    keyIntensity = 1.55,
+    keyColor = 0xfff3d8,
+    keyIntensity = 1.62,
     skyColor = 0x9fd8ff,
     groundColor = 0x4a6b52,
     hemiIntensity = 0.80,

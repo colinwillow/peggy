@@ -52,9 +52,9 @@ const frag = /* glsl */`
 export class Sky {
   constructor(scene, opts = {}) {
     const {
-      top = 0x2b7fd4,
-      horizon = 0xbfe9ff,
-      sunColor = 0xfff3c4,
+      top = 0x2f86e0,
+      horizon = 0xcbeeff,
+      sunColor = 0xfff0b8,
       sunDir = new THREE.Vector3(38, 60, 26).normalize(),
       bands = 7,
       // Must sit comfortably INSIDE the camera's far plane. A dome larger than
