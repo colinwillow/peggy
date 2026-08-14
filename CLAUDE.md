@@ -1,22 +1,22 @@
 # Working on Peggy
 
-## Ship to `main`. Don't hand over a branch.
+## Anything meant for testing goes to `main`
 
-This project has one branch and it is `main`. Commit there, push there, and the
-change is live on GitHub Pages a minute later — which is how it gets tested,
-on a phone, by the person who asked for it.
+The loop here is: you make a change, it goes live on GitHub Pages, and it gets
+played on a phone. **Pages serves `main`**, so a change sitting anywhere else
+cannot be tested — that's the whole constraint, and it's the only one.
 
-Branch locally if it helps you work. But **a branch is not a deliverable.** A
-change parked on `claude/whatever` is a change nobody will ever play, and
-"here's a branch for you to review" is not what was asked for. Merge it to
-`main` and push before you report back.
+So: **branch as much as you like.** Experiments, risky refactors, two competing
+approaches side by side — all fine, and leaving old branches lying around is
+fine too. Nobody minds them existing.
 
-Reverting is the safety net, not branching. If a change turns out bad, it gets
-reverted — that's cheap, and it's cheaper than a review step that never happens.
+What doesn't work is ending a requested change on a branch. "It's done, it's on
+`claude/whatever`" means it can't be played, so it isn't done. Merge to `main`
+and push before you report back. If a change turns out bad it gets reverted;
+that's cheap, and cheaper than a review step nobody performs.
 
-Corollary: **don't open a pull request unless explicitly asked.** A PR against
-`main` in a one-branch repo is just an extra click between the work and the
-phone it needs to run on.
+Don't open a pull request unless asked — it's an extra click between the work
+and the phone it needs to run on.
 
 ## Test before you push
 
