@@ -27,6 +27,7 @@ to exercise it.
 | Run / jump / fall / land, with momentum | Audio |
 | Surface swimming and free 3D diving | Real levels (there is one test island) |
 | Hook: swing, reel, haul | Underwater rig (see below) |
+| Melee swipe (knocks loose props) | Guns / projectiles |
 | Toon shading, ink outlines, toon sea | Save state, menus, HUD proper |
 | Follow camera with collision | The actual Peggy model — a proxy stands in |
 
@@ -39,25 +40,45 @@ reached with two thumbs, it doesn't go in.** Both other input methods are
 mapped onto the same intent struct, so nothing downstream asks what device
 you're on.
 
+**No on-screen buttons.** Every verb is a stick gesture.
+
 | | Touch | Keyboard / mouse | Gamepad |
 |---|---|---|---|
 | Move | left stick | `WASD` | left stick |
 | Turn camera | right stick, **horizontal only** | mouse X, or `Q`/`E` | right stick X |
 | Centre camera | **tap** left stick | `R` | L3 |
+| Dive | **flick** left stick down | `C` | B |
 | Jump | **tap** right stick | `Space` | A |
-| Hook | HOOK button | left click, or `F` | RT |
-| Dive | DIVE button, or **flick** left stick down | `C` | B |
+| Melee | **flick** right stick | click, or `V` | X |
+| Hook | **hold** right stick, release | `F` | RT |
+
+### The four gestures
+
+The right stick carries camera, jump, melee and hook on one thumb, told apart
+by deflection over time:
+
+| Gesture | Motion | Verb |
+|---|---|---|
+| **tap** | down, barely moves, up fast | jump |
+| **hold** | down, stays near centre, up after a beat | throw the hook |
+| **flick** | snapped out fast and far | melee swipe |
+| **push** | out and sustained | steer the camera |
+
+Tap and hold are the same motion split by *duration*; flick and push are the
+same motion split by *speed*. Both splits hold up because a human doing one
+isn't near the threshold of the other.
+
+The obvious objection — a flick is also a camera drag — is handled by muting
+that stick's camera contribution for 260 ms after a flick fires, so a swipe
+doesn't whip the view. Verified: a flick moves the camera by exactly 0.
 
 **The camera's tilt is fixed.** You rotate around her, you never pitch. Giving
-up that axis is the point — it frees the right thumb for melee / shoot /
-interact, which is where the verbs that don't exist yet are going to live.
+up that axis is what leaves room for the gestures above; guns and interact will
+join the same thumb rather than growing a button row.
 
 **The left stick is locomotion and nothing else.** Tapping it recentres the
 camera behind her, so a player who only wants to run around never has to
 involve their right thumb at all.
-
-Discrete verbs get real buttons rather than stick gestures, because a flick on
-the right stick is also a camera drag — the two fight, and the camera wins.
 
 The sticks are **floating**: each owns an invisible half of the screen and its
 centre appears wherever your thumb lands. You never look at your thumbs, so a

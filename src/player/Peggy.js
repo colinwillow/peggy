@@ -72,6 +72,15 @@ const TUNING = {
   surfaceSnapHL: 0.09,    // how tightly the body tracks the wave surface
   waterEntrySpeed: 0.55,  // vertical velocity retained when you hit the water
   swimDepth: 0.62,        // how far below the surface her body floats
+
+  // ── melee: the hook swipe ───────────────────────────────────────────────
+  // She swings the hook in a short arc in front of her. Short and committed:
+  // long enough to read as a real swing, short enough to chain flicks.
+  meleeTime: 0.34,        // seconds the swing owns her
+  meleeLunge: 4.2,        // m/s forward, so a swipe closes distance
+  meleeRange: 2.3,        // reach from her centre
+  meleeArc: 1.5,          // radians of the cone she sweeps
+  meleeCooldown: 0.16,    // gap before the next swing can start
 };
 
 export class Peggy {
@@ -106,6 +115,10 @@ export class Peggy {
     // not been integrated yet, so it is still exactly at the threshold — and
     // the state ping-pongs every frame.
     this._waterLock = 0;
+
+    /** Counts down while a melee swing owns her. */
+    this.meleeTimer = 0;
+    this._meleeCd = 0;
 
     /** Set by Hook.js while a grapple owns the movement. */
     this.hookOverride = null;
@@ -158,7 +171,15 @@ export class Peggy {
     const wishMag = clamp01(Math.hypot(wishX, wishZ));
 
     this._waterLock = Math.max(0, this._waterLock - dt);
+    this.meleeTimer = Math.max(0, this.meleeTimer - dt);
+    this._meleeCd = Math.max(0, this._meleeCd - dt);
     this._updateWaterState();
+
+    // Melee is available from anywhere except a grapple — swinging the hook
+    // mid-air is half the point of having it.
+    if (buttons.melee && buttons.melee.pressed && this._meleeCd <= 0 && !this.hookOverride) {
+      this._startMelee(camYaw, buttons.meleeAngle);
+    }
 
     if (this.hookOverride) {
       this.hookOverride(dt, wishX, wishZ, wishMag);
@@ -393,6 +414,52 @@ export class Peggy {
       this.position.y = ground.y;
       if (this.velocity.y < 0) this.velocity.y = 0;
     }
+  }
+
+  // ── melee ───────────────────────────────────────────────────────────────
+
+  /**
+   * Swing the hook. Direction comes from the flick itself when there is one, so
+   * flicking left swipes left — otherwise she swings where she's facing.
+   */
+  _startMelee(camYaw, flickAngle) {
+    this.meleeTimer = this.T.meleeTime;
+    this._meleeCd = this.T.meleeTime + this.T.meleeCooldown;
+
+    if (flickAngle != null) {
+      // screen-space flick -> world. Same basis as movement: forward is
+      // -(sin, cos) of the camera yaw, right is (cos, -sin).
+      const sx = Math.cos(flickAngle), sy = -Math.sin(flickAngle); // screen y is down
+      const c = Math.cos(camYaw), s = Math.sin(camYaw);
+      const wx = sx * c - sy * s;
+      const wz = -sx * s - sy * c;
+      if (Math.hypot(wx, wz) > 0.01) this.facing = Math.atan2(wx, wz);
+    }
+
+    // Lunge, so a swipe closes distance instead of flailing on the spot.
+    const f = this.forward(this._tmp);
+    this.velocity.x += f.x * this.T.meleeLunge;
+    this.velocity.z += f.z * this.T.meleeLunge;
+
+    this.emit('melee', {
+      x: this.position.x, z: this.position.z,
+      y: this.position.y + this.T.height * 0.6,
+      facing: this.facing,
+      range: this.T.meleeRange,
+      arc: this.T.meleeArc,
+    });
+  }
+
+  /** True if a world point is inside the current swing's cone. */
+  meleeHits(x, y, z) {
+    if (this.meleeTimer <= 0) return false;
+    const dx = x - this.position.x, dz = z - this.position.z;
+    const d = Math.hypot(dx, dz);
+    if (d > this.T.meleeRange || d < 0.01) return false;
+    if (Math.abs(y - this.position.y) > this.T.height * 1.4) return false;
+    const f = this.forward(this._tmp);
+    const dot = (dx * f.x + dz * f.z) / d;
+    return dot > Math.cos(this.T.meleeArc * 0.5);
   }
 
   // ── shared movement helpers ─────────────────────────────────────────────

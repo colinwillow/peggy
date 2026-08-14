@@ -28,6 +28,26 @@ const TAP_MAX_MS = 220;      // longer than this is a hold, not a tap
 const TAP_MAX_TRAVEL = 15;   // px — moved further than this, it was a push
 const TAP_MAX_PUSH = 0.4;    // and it must never have deflected past this
 
+// ── THE FOUR GESTURES ──────────────────────────────────────────────────────
+// One thumb, four verbs, told apart by deflection over time. This is what lets
+// the right stick carry camera + jump + melee + hook without a single button.
+//
+//   TAP      down, barely moved, up fast              -> jump
+//   HOLD     down, stays near centre, up after a beat -> throw the hook
+//   FLICK    snapped out FAST and far                 -> melee
+//   PUSH     out and sustained                        -> steer the camera
+//
+// TAP and HOLD are the same motion separated only by duration; FLICK and PUSH
+// are the same motion separated only by speed. Both splits are reliable because
+// a human doing one is not close to the threshold of the other.
+const HOLD_MIN_MS = 240;     // past a tap, and it must have stayed near centre
+const HOLD_MAX_PUSH = 0.30;  // push further than this and it's a camera drag
+const FLICK_MAG = 0.72;      // how far out counts as a flick
+const FLICK_MS = 190;        // ...and how fast it had to get there
+const FLICK_RESET = 0.30;    // fall back inside this to re-arm the next flick
+const FLICK_MUTE_MS = 260;   // camera ignores this stick briefly after a flick,
+                             // so a melee swipe doesn't also whip the view
+
 export class Joystick {
   /**
    * @param {HTMLElement} zone  the touch region (a big invisible half-screen in floating mode)
@@ -52,10 +72,18 @@ export class Joystick {
     this.centreX = 0;
     this.centreY = 0;
 
-    /** Set by the consumer; called on a tap. */
-    this.onTap = null;
+    /** Gesture callbacks, set by the consumer. See THE FOUR GESTURES above. */
+    this.onTap = null;          // ()      quick press, no travel
+    this.onHoldRelease = null;  // ()      held near centre, then let go
+    this.onFlick = null;        // (angle) snapped out fast — fires mid-motion
     this.onPress = null;
     this.onRelease = null;
+
+    /** 0..1 while a hold is charging, for UI. Zero at every other moment. */
+    this.holdCharge = 0;
+    this._flicked = false;
+    this._lowSince = 0;
+    this._muteUntil = 0;
 
     this._tapStart = 0;
     this._tapTravelled = false;
@@ -76,6 +104,12 @@ export class Joystick {
   }
 
   get held() { return this.touchId !== null; }
+  /**
+   * True for a beat after a flick. The camera reads this and ignores the stick,
+   * so a melee swipe doesn't also fling the view sideways — which is the whole
+   * reason a flick and a camera drag can share one thumb.
+   */
+  get muted() { return performance.now() < this._muteUntil; }
   /** True while the touch that began this hold started on the knob itself. */
   get centreHeld() { return this.touchId !== null && this._pressedCentre; }
 
@@ -117,8 +151,11 @@ export class Joystick {
 
     this.touchId = t.identifier;
     this._tapStart = performance.now();
+    this._lowSince = this._tapStart;
     this._tapTravelled = false;
     this._tapPeak = 0;
+    this._flicked = false;
+    this.holdCharge = 0;
     if (this.onPress) this.onPress();
     this._apply(t.clientX, t.clientY);
   }
@@ -133,6 +170,7 @@ export class Joystick {
       const frac = travel / this.radius;
       if (frac > this._tapPeak) this._tapPeak = frac;
       this._apply(t.clientX, t.clientY);
+      this._gesture(frac);
       break;
     }
   }
@@ -142,7 +180,13 @@ export class Joystick {
     for (const t of e.changedTouches) {
       if (t.identifier !== this.touchId) continue;
       const held = performance.now() - this._tapStart;
-      const wasTap = !this._tapTravelled && this._tapPeak < TAP_MAX_PUSH && held < TAP_MAX_MS;
+      const stillNearCentre = !this._tapTravelled && this._tapPeak < TAP_MAX_PUSH;
+      const wasTap = stillNearCentre && held < TAP_MAX_MS;
+      // A hold is the same motion as a tap, just sustained — and crucially it
+      // must never have been pushed out, or it was a camera drag that happened
+      // to start slowly.
+      const wasHold = !this._flicked && !wasTap
+        && held >= HOLD_MIN_MS && this._tapPeak < HOLD_MAX_PUSH;
 
       this.touchId = null;
       this._pressedCentre = false;
@@ -159,8 +203,10 @@ export class Joystick {
         this._resetKnob();
       }
 
+      this.holdCharge = 0;
       if (this.onRelease) this.onRelease();
       if (wasTap && this.onTap) this.onTap();
+      else if (wasHold && this.onHoldRelease) this.onHoldRelease();
       break;
     }
   }
@@ -190,6 +236,34 @@ export class Joystick {
     this.y = Math.sin(ang) * n;
 
     if (n > this._peakMag) { this._peakMag = n; this._peakAngle = ang; }
+  }
+
+  /**
+   * Runs on every move. Detects the flick, and tracks how long a low-deflection
+   * hold has been charging.
+   */
+  _gesture(frac) {
+    const now = performance.now();
+
+    // Re-arm whenever the thumb comes back near the middle, so you can flick
+    // repeatedly without lifting — which is how melee has to feel.
+    if (frac < FLICK_RESET) { this._lowSince = now; this._flicked = false; }
+
+    if (!this._flicked && frac >= FLICK_MAG && (now - this._lowSince) <= FLICK_MS) {
+      this._flicked = true;
+      this._muteUntil = now + FLICK_MUTE_MS;
+      this.holdCharge = 0;
+      if (this.onFlick) this.onFlick(this.angle);
+      return;
+    }
+
+    // Charge only while the thumb stays put. Pushing out cancels it — that
+    // gesture belongs to the camera now.
+    if (!this._flicked && this._tapPeak < HOLD_MAX_PUSH) {
+      this.holdCharge = clamp01((now - this._tapStart - TAP_MAX_MS) / 380);
+    } else {
+      this.holdCharge = 0;
+    }
   }
 
   _showAt(x, y, opacity) {

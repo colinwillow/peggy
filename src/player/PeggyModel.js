@@ -288,6 +288,7 @@ export class ProxyPeggyModel {
     this._squash = 0;
     this._lean = 0;
     this._hookRaise = 0;
+    this._swingT = 0;
   }
 
   /**
@@ -361,13 +362,42 @@ export class ProxyPeggyModel {
 
     // ── arms ──────────────────────────────────────────────────────────────
     this._hookRaise = damp(this._hookRaise, ctx.hookActive ? 1 : 0, 0.09, dt);
-    // hook arm counter-swings, and snaps up when the hook fires
+
+    // MELEE SWING. Drives straight off the controller's timer so the visual and
+    // the hitbox can never disagree. Wind-up is fast and the follow-through is
+    // slow — the opposite reads as a limp wave.
+    const meleeT = peggy.meleeTimer > 0
+      ? 1 - (peggy.meleeTimer / peggy.T.meleeTime)   // 0 -> 1 across the swing
+      : -1;
+    let swingX = 0, swingY = 0, swingZ = 0;
+    if (meleeT >= 0) {
+      const windUp = clamp01(meleeT / 0.28);
+      const strike = clamp01((meleeT - 0.22) / 0.78);
+      swingX = lerp(0, -2.0, windUp) + lerp(0, 2.9, smoothstep(strike));
+      swingZ = lerp(0, 1.5, windUp) - lerp(0, 2.2, smoothstep(strike));
+      swingY = Math.sin(meleeT * Math.PI) * 0.5;
+      // the whole body turns into it
+      this.body.rotation.y = Math.sin(meleeT * Math.PI) * 0.42;
+    } else {
+      this.body.rotation.y = damp(this.body.rotation.y, 0, 0.12, dt);
+    }
+
+    // hook arm counter-swings, snaps up when the hook fires, and the melee
+    // swing overrides both
     this.hookArm.rotation.x = lerp(
       -Math.sin(phase) * 0.55 * speed,
       -1.45,
       this._hookRaise
-    );
-    this.hookArm.rotation.z = lerp(0.12, -0.25, this._hookRaise);
+    ) + swingX;
+    this.hookArm.rotation.z = lerp(0.12, -0.25, this._hookRaise) + swingZ;
+    this.hookArm.rotation.y = swingY;
+
+    // ── charging the hook: she rears back and the eye widens ──────────────
+    const charge = ctx.hookCharge || 0;
+    if (charge > 0.01) {
+      this.hookArm.rotation.x -= charge * 0.9;
+      this.body.rotation.x -= charge * 0.10;
+    }
 
     // tentacle arm: a travelling wave down the segments, so it curls rather
     // than swinging like a rigid limb

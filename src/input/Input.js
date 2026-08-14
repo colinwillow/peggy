@@ -18,17 +18,21 @@
 //   the right thumb's gestures for melee / shoot / interact, which is where the
 //   verbs that don't exist yet are going to live.
 //
-//   ACTION BUTTONS sit above the right stick. Discrete verbs go here rather
-//   than on stick gestures, because a flick on the right stick is also a
-//   camera drag — the two fight, and the camera always wins.
+//   NO ON-SCREEN BUTTONS. Every verb is a stick gesture, told apart by
+//   deflection over time (see THE FOUR GESTURES in Joystick.js). Buttons cost
+//   screen space, they cost a thumb leaving the stick, and they're slower than
+//   a flick you can throw mid-run. The one real objection — that a flick also
+//   drags the camera — is handled by muting the stick's camera contribution for
+//   a beat after a flick fires, rather than by giving up and adding a button.
 //
 // Actions:
 //   move      analogue, screen-space (+y is forward/up-screen)
 //   look      analogue, camera yaw only (x); y is ignored
-//   recentre  tap left stick    / R      / L3
-//   jump      tap right stick   / Space  / A
-//   hook      HOOK button       / LMB    / RT
-//   dive      DIVE button, or flick left stick down / C / B
+//   recentre  tap LEFT stick           / R      / L3
+//   dive      flick LEFT stick down    / C      / B
+//   jump      tap RIGHT stick          / Space  / A
+//   melee     flick RIGHT stick        / LMB    / X      — hook swipe
+//   hook      hold RIGHT stick, release / F     / RT     — throw the grapple
 
 import { Joystick } from './Joystick.js';
 import { clamp } from '../core/math.js';
@@ -51,9 +55,14 @@ export class Input {
     this.look = { x: 0, y: 0, mag: 0 };
     this.jump = new Button();
     this.hook = new Button();
+    this.melee = new Button();
     this.dive = new Button();
     this.recentre = new Button();
     this.pause = new Button();
+    /** Direction of the last melee flick, screen-space radians. */
+    this.meleeAngle = 0;
+    /** 0..1 while the hook is being charged, for the reticle. */
+    this.hookCharge = 0;
 
     /** Which source produced the most recent input — used to swap the HUD. */
     this.lastSource = 'touch';
@@ -74,36 +83,21 @@ export class Input {
     this.stickL = new Joystick(dom.zoneL, dom.knobL, dom.ringL, { floating: true });
     this.stickR = new Joystick(dom.zoneR, dom.knobR, dom.ringR, { floating: true });
 
+    // LEFT — locomotion, plus the two verbs that aren't combat.
     this.stickL.onTap = () => { this.recentre.tap(); this.lastSource = 'touch'; };
-    this.stickR.onTap = () => { this.jump.tap(); this.lastSource = 'touch'; };
-
-    // Action buttons. Bound on touchstart, not click: waiting for a click adds
-    // the browser's tap delay and drops the input if the thumb slides at all,
-    // which on an action button reads as the game ignoring you.
-    this._btnHeld = Object.create(null);
-    const bind = (el, name) => {
-      if (!el) return;
-      const down = (e) => {
-        e.preventDefault(); e.stopPropagation();
-        this._btnHeld[name] = true;
-        this[name].tap();
-        this.lastSource = 'touch';
-        el.classList.add('pressed');
-      };
-      const up = (e) => {
-        e.preventDefault(); e.stopPropagation();
-        this._btnHeld[name] = false;
-        el.classList.remove('pressed');
-      };
-      el.addEventListener('touchstart', down, { passive: false });
-      el.addEventListener('touchend', up);
-      el.addEventListener('touchcancel', up);
-      // mouse fallback, so the buttons also work on a desktop browser
-      el.addEventListener('mousedown', down);
-      addEventListener('mouseup', up);
+    this.stickL.onFlick = (angle) => {
+      // screen y is down, so a downward flick has a positive sine
+      if (Math.sin(angle) > 0.55) { this.dive.tap(); this.lastSource = 'touch'; }
     };
-    bind(dom.btnHook, 'hook');
-    bind(dom.btnDive, 'dive');
+
+    // RIGHT — camera, plus the combat verbs.
+    this.stickR.onTap = () => { this.jump.tap(); this.lastSource = 'touch'; };
+    this.stickR.onFlick = (angle) => {
+      this.meleeAngle = angle;
+      this.melee.tap();
+      this.lastSource = 'touch';
+    };
+    this.stickR.onHoldRelease = () => { this.hook.tap(); this.lastSource = 'touch'; };
   }
 
   // ── keyboard ─────────────────────────────────────────────────────────────
@@ -151,26 +145,20 @@ export class Input {
   /** Call once per frame, before anything reads the intent. */
   sample(dt) {
     let mx = 0, my = 0, lx = 0, ly = 0;
-    let jump = false, hook = false, dive = false, recentre = false, pause = false;
+    let jump = false, hook = false, melee = false, dive = false, recentre = false, pause = false;
 
     // touch sticks — screen y is down, intent y is forward, hence the negation
     if (this.stickL.held) {
       mx += this.stickL.x; my += -this.stickL.y;
       if (this.stickL.mag > 0.05) this.lastSource = 'touch';
     }
-    if (this.stickR.held) {
-      // x only. The vertical axis is deliberately dropped, not merely unused —
-      // see the header. Reading it here would reintroduce camera pitch.
+    if (this.stickR.held && !this.stickR.muted) {
+      // x only — the vertical axis is deliberately dropped, not merely unused.
+      // And muted right after a flick, so a melee swipe doesn't whip the view.
       lx += this.stickR.x;
       if (this.stickR.mag > 0.05) this.lastSource = 'touch';
     }
-    for (const name in this._btnHeld) if (this._btnHeld[name]) {
-      if (name === 'hook') hook = true;
-      else if (name === 'dive') dive = true;
-    }
-    // flick the move stick hard downward to dive
-    const flick = this.stickL.consumeFlick(0.9);
-    if (flick && Math.sin(flick.angle) > 0.6) dive = true;
+    this.hookCharge = this.stickR.holdCharge;
 
     // keyboard
     const k = this._keys;
@@ -183,6 +171,7 @@ export class Input {
     jump = jump || !!k.Space;
     dive = dive || !!k.KeyC;
     hook = hook || !!k.KeyF;
+    melee = melee || !!k.KeyV;
     recentre = recentre || !!k.KeyR;
     pause = pause || !!k.Escape;
 
@@ -191,7 +180,7 @@ export class Input {
       lx += clamp(this._mouse.dx * 0.14, -1, 1);
     }
     this._mouse.dx = 0; this._mouse.dy = 0;
-    hook = hook || this._mouse.down;
+    melee = melee || this._mouse.down;   // click = melee, matching flick-right
 
     // gamepad
     const gp = this._pollGamepad();
@@ -205,6 +194,7 @@ export class Input {
       const btn = (i) => !!(gp.buttons[i] && gp.buttons[i].pressed);
       if (btn(0)) { jump = true; this.lastSource = 'pad'; }
       if (btn(1)) dive = true;
+      if (btn(2)) { melee = true; this.lastSource = 'pad'; }        // X
       if (btn(7) || btn(5)) { hook = true; this.lastSource = 'pad'; }
       if (btn(10)) recentre = true;   // L3
       if (btn(9)) pause = true;
@@ -221,12 +211,14 @@ export class Input {
 
     this.jump.set(jump);
     this.hook.set(hook);
+    this.melee.set(melee);
     this.dive.set(dive);
     this.recentre.set(recentre);
     this.pause.set(pause);
 
     this.jump.edge();
     this.hook.edge();
+    this.melee.edge();
     this.dive.edge();
     this.recentre.edge();
     this.pause.edge();

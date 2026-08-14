@@ -280,6 +280,9 @@ export function buildTestIsland(scene) {
       position: barrel.position,
       object3D: barrel,
       held: false,
+      vel: new THREE.Vector3(),
+      spin: new THREE.Vector3(),
+      radius: 0.55,
       onCaught: () => { haulable.caught = true; },
     };
     level.haulables.push(haulable);
@@ -335,5 +338,49 @@ export function buildTestIsland(scene) {
   const spawn = new THREE.Vector3(4, 0, -34);
   spawn.y = level.terrainHeight(spawn.x, spawn.z) + 0.2;
 
-  return { level, props, spawn, loose, stairTops };
+  /**
+   * Loose props get a deliberately cheap physics: gravity, ground bounce,
+   * friction, and they float on water. Not because barrels deserve a rigid body
+   * solver, but because a melee swing with NO reaction reads as a broken
+   * button — you need something in the world to move when you hit it.
+   */
+  function updateLoose(dt, water) {
+    for (const h of loose) {
+      if (h.held) continue;
+      const moving = h.vel.lengthSq() > 1e-4;
+      if (!moving) continue;
+
+      h.vel.y -= 22 * dt;
+      h.position.addScaledVector(h.vel, dt);
+
+      const surf = water.heightAt(h.position.x, h.position.z);
+      const ground = level.groundAt(h.position.x, h.position.z, Infinity, {}).y;
+      const rest = Math.max(ground, surf - 0.15) + h.radius;
+
+      if (h.position.y <= rest) {
+        h.position.y = rest;
+        // bounce, then settle — a barrel that bounces forever is worse noise
+        // than one that thuds and stops
+        if (h.vel.y < -1.2) h.vel.y *= -0.32;
+        else h.vel.y = 0;
+        const fric = Math.pow(surf > ground ? 0.02 : 0.16, dt);  // water drags harder
+        h.vel.x *= fric; h.vel.z *= fric;
+        if (h.vel.lengthSq() < 0.05) h.vel.set(0, 0, 0);
+      }
+
+      // keep them out of solid props
+      level.resolveHorizontal(h.position, h.radius, 1.0, 0);
+      h.object3D.rotation.x += h.spin.x * dt;
+      h.object3D.rotation.z += h.spin.z * dt;
+      h.spin.multiplyScalar(Math.pow(0.25, dt));
+    }
+  }
+
+  /** Shove a loose prop — used by the melee swing. */
+  function knock(h, dirX, dirZ, power) {
+    h.vel.set(dirX * power, power * 0.45, dirZ * power);
+    h.spin.set((Math.random() - 0.5) * 12, 0, (Math.random() - 0.5) * 12);
+  }
+
+  return { level, props, spawn, loose, stairTops, updateLoose, knock };
 }

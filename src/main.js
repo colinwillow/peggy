@@ -65,7 +65,7 @@ async function boot() {
     depthScale: QUALITY.waterDepthScale,
   });
 
-  const { level, props, spawn, stairTops } = buildTestIsland(scene);
+  const { level, props, spawn, loose, stairTops, updateLoose, knock } = buildTestIsland(scene);
 
   const terrainMat = toonMaterial({
     color: 0xffffff,
@@ -148,9 +148,23 @@ async function boot() {
     hook.update(dt, input, input.move);
     follow.update(dt, peggy, input.look);
 
+    updateLoose(dt, water);
+
     // ── react to what happened ─────────────────────────────────────────────
     for (const e of peggy.drainEvents()) {
-      if (e.type === 'land') {
+      if (e.type === 'melee') {
+        follow.addTrauma(0.10);
+        // Anything loose inside the swing arc gets sent flying. This is the
+        // only feedback a flick has until there are enemies, and without it the
+        // gesture feels like it didn't register.
+        for (const h of loose) {
+          if (h.held || !peggy.meleeHits(h.position.x, h.position.y, h.position.z)) continue;
+          const dx = h.position.x - e.x, dz = h.position.z - e.z;
+          const d = Math.hypot(dx, dz) || 1;
+          knock(h, dx / d, dz / d, 11);
+          follow.addTrauma(0.14);
+        }
+      } else if (e.type === 'land') {
         model.impact(e.impact);
         if (e.impact > 9) follow.addTrauma(clamp01((e.impact - 9) / 22) * 0.4);
       } else if (e.type === 'splash') {
@@ -164,6 +178,7 @@ async function boot() {
     model.update(dt, peggy, {
       time,
       hookActive: hook.active,
+      hookCharge: input.hookCharge,
     });
 
     water.update(dt, camera);
@@ -221,10 +236,14 @@ async function boot() {
       else if (peggy.state === State.SWIM) hint = 'TAP DIVE TO GO UNDER';
       hud.hint.textContent = hint;
 
-      // Reticle lights up when something is in hook range.
+      // Reticle lights up when something is in hook range, and swells while
+      // the hook is being charged — so a hold reads as "something is happening"
+      // instead of as a dropped input.
       const aim = hook.aimDirection(_v);
       const target = level.findGrapplePoint(hook.handPosition(_v2), aim, 17, 0.35);
       hud.reticle.classList.toggle('locked', !!target);
+      hud.reticle.classList.toggle('charging', input.hookCharge > 0.02);
+      hud.reticle.style.setProperty('--charge', input.hookCharge.toFixed(2));
     }
   }
 

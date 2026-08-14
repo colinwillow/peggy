@@ -43,14 +43,14 @@ const out = await page.evaluate(() => {
 
   // A stand-in for the Input object: same shape, fully scriptable.
   const mkBtn = () => ({ down: false, pressed: false, released: false });
-  const btns = { jump: mkBtn(), dive: mkBtn(), hook: mkBtn(), sprint: mkBtn() };
+  const btns = { jump: mkBtn(), dive: mkBtn(), hook: mkBtn(), melee: mkBtn(), meleeAngle: null };
   const move = { x: 0, y: 0, mag: 0 };
 
   function setMove(x, y) { move.x = x; move.y = y; move.mag = Math.min(1, Math.hypot(x, y)); }
   function press(b) { btns[b].down = true; btns[b].pressed = true; }
   function hold(b) { btns[b].down = true; btns[b].pressed = false; }
   function release(b) { btns[b].down = false; btns[b].pressed = false; }
-  function clearEdges() { for (const k in btns) btns[k].pressed = false; }
+  function clearEdges() { for (const k in btns) if (btns[k] && btns[k].pressed !== undefined) btns[k].pressed = false; }
 
   // Step the controller only. Camera yaw pinned to 0 so +y on the stick is +z
   // in the world and the numbers are readable.
@@ -323,6 +323,26 @@ const out = await page.evaluate(() => {
                                   Math.cos(F.yaw - (P.facing + Math.PI))));
   r.recentreWorks = off < 0.05;
 
+  // ── melee: swing fires, lunges forward, and has reach ───────────────────
+  P.teleport(6, L.terrainHeight(6, 4) + 0.5, 4);
+  setMove(0, 0); step(180);
+  P.facing = 0;                                   // face +z
+  const mx0 = P.position.z, mSpeed0 = Math.hypot(P.velocity.x, P.velocity.z);
+  press('melee'); step(1); release('melee');
+  const swungFor = P.meleeTimer;
+  const lunge = Math.hypot(P.velocity.x, P.velocity.z);
+  // a point 1.5m straight ahead must be inside the arc; one behind must not
+  const hitsFront = P.meleeHits(P.position.x, P.position.y, P.position.z + 1.5);
+  const hitsBack  = P.meleeHits(P.position.x, P.position.y, P.position.z - 1.5);
+  const hitsFar   = P.meleeHits(P.position.x, P.position.y, P.position.z + 6.0);
+  step(90);
+  r.melee = {
+    fired: swungFor > 0,
+    lungeSpeed: +lunge.toFixed(2),
+    hitsFront, hitsBack, hitsFar,
+    endsAfterSwing: P.meleeTimer === 0,
+  };
+
   return r;
 });
 
@@ -358,6 +378,12 @@ const bools = [
   ['hook latches and swings',           out.hook.stateAfterFire === 'swinging'],
   ['camera tilt is fixed',              out.pitchFixed],
   ['tap-left recentres the camera',     out.recentreWorks],
+  ['melee flick fires a swing',         out.melee.fired],
+  ['melee lunges forward',              out.melee.lungeSpeed > 3],
+  ['melee reaches in front',            out.melee.hitsFront],
+  ['melee does NOT hit behind',         !out.melee.hitsBack],
+  ['melee does NOT hit out of range',   !out.melee.hitsFar],
+  ['melee swing ends',                  out.melee.endsAfterSwing],
   ['swing holds the rope',              out.hook.stateLater === 'swinging' && out.hook.ropeLength > 1],
   ['never falls through the world',     out.fellThrough.below === 0],
   ['no console errors',                 errors.filter((e) => !/peggy\.glb|404/.test(e)).length === 0],
