@@ -46,6 +46,8 @@ export const PALETTE = {
   pupil: 0x1a1420,
 };
 
+const LOCOMOTION_KEYS = new Set(['walk', 'run', 'back', 'strafeL', 'strafeR']);
+
 const CLIPS = {
   idle: ['idle', 'Idle', 'peggy_idle'],
   walk: ['walk', 'Walk', 'peggy_walk'],
@@ -641,6 +643,12 @@ export class RiggedPeggyModel {
     }
     this.current = null;
     this._landT = 0;
+    // The airborne clip sequence: the jump-start clip plays ONCE from takeoff,
+    // then hands over to the in-air pose for however long the arc lasts.
+    // 'none' | 'jump' | 'fall'
+    this._airPhase = 'none';
+    this._jumpClock = 0;
+    this._prevVy = 0;
 
     // ── auto-normalise ────────────────────────────────────────────────────
     // DCC exports arrive at arbitrary scales (this one: a 0.01 root from
@@ -691,25 +699,77 @@ export class RiggedPeggyModel {
 
     this._landT = Math.max(0, this._landT - dt);
 
+    // ── the airborne sequence: takeoff -> in-air -> (landing on impact) ───
+    // The old rule keyed jump-vs-fall on the SIGN OF VY, which flipped the
+    // clip exactly at the apex — one more pop at the arc's most-watched
+    // moment. Now takeoff is an event: the jump clip plays once from the
+    // moment she leaves the ground (or double-jumps), and the in-air pose
+    // holds for the whole rest of the arc, rising or falling alike.
+    const airborne = !peggy.grounded && !peggy.inWater
+      && peggy.state !== 'swing' && peggy.state !== 'grapple';
+    if (airborne) {
+      const launched = this._airPhase === 'none' && peggy.velocity.y > 1.5;
+      const doubled = this._airPhase !== 'none' && peggy.velocity.y > this._prevVy + 4;
+      if (launched || doubled) {
+        this._airPhase = 'jump';
+        this._jumpClock = 0;
+        // Re-launching while the jump clip is already current (the double):
+        // _play won't reset a same-key action, so kick it here.
+        if (doubled && this.actions.jump) this.actions.jump.reset().play();
+      } else if (this._airPhase === 'none') {
+        this._airPhase = 'fall';          // walked off an edge — no takeoff
+      }
+      if (this._airPhase === 'jump') {
+        this._jumpClock += dt;
+        const dur = this.actions.jump
+          ? Math.min(this.actions.jump.getClip().duration - 0.04, 0.5)
+          : 0;
+        if (this._jumpClock >= dur) this._airPhase = 'fall';
+      }
+    } else {
+      this._airPhase = 'none';
+    }
+    this._prevVy = peggy.velocity.y;
+
     let key = 'idle';
     if (peggy.state === 'swing') key = this.actions.swing ? 'swing' : 'fall';
     else if (peggy.state === 'grapple') key = 'fall';
     else if (peggy.state === 'dive') key = this.actions.dive ? 'dive' : 'fall';
-    else if (peggy.state === 'swim') key = this.actions.swim ? 'swim' : 'idle';
-    else if (!peggy.grounded) key = peggy.velocity.y > 0.5 ? 'jump' : 'fall';
+    // No swim clip yet — the in-air pose is the stand-in until one lands.
+    else if (peggy.state === 'swim') key = this.actions.swim ? 'swim' : 'fall';
+    else if (!peggy.grounded) key = this._airPhase === 'jump' ? 'jump' : 'fall';
     else if (this._landT > 0 && peggy.speedRatio < 0.3) key = 'land';
-    else if (peggy.speedRatio > 0.55) key = 'run';
-    else if (peggy.speedRatio > 0.08) key = 'walk';
+    else if (peggy.speedRatio > 0.08) key = this._groundKey(peggy, ctx);
 
     if (!this.actions[key]) key = this.actions.idle ? 'idle' : Object.keys(this.actions)[0];
     this._play(key, 0.07, dt);
 
     // Feet stay honest: locomotion clips scrub with actual ground speed.
-    if ((key === 'walk' || key === 'run') && this.actions[key]) {
+    if (LOCOMOTION_KEYS.has(key) && this.actions[key]) {
       this.actions[key].timeScale = clamp(0.6 + peggy.speedRatio * 1.1, 0.5, 2.0);
     }
 
     this.mixer.update(dt);
+  }
+
+  /**
+   * Which grounded moving clip? Free running faces her travel, so it's just
+   * walk/run — but under a face lock (the twin-stick hold) her feet and her
+   * eyes disagree, and the clip comes from where the velocity points IN HER
+   * FRAME: backwards past her shoulders, sideways past her hips.
+   */
+  _groundKey(peggy, ctx) {
+    const runOrWalk = peggy.speedRatio > 0.55 ? 'run' : 'walk';
+    if (!ctx.faceLocked) return runOrWalk;
+    const f = peggy.facing;
+    const vx = peggy.velocity.x, vz = peggy.velocity.z;
+    const fwd = vx * Math.sin(f) + vz * Math.cos(f);        // along her facing
+    const side = -vx * Math.cos(f) + vz * Math.sin(f);      // toward her right
+    if (Math.abs(fwd) >= Math.abs(side)) {
+      return fwd >= 0 ? runOrWalk : (this.actions.back ? 'back' : runOrWalk);
+    }
+    const strafe = side > 0 ? 'strafeR' : 'strafeL';
+    return this.actions[strafe] ? strafe : runOrWalk;
   }
 
   /** Landing kick from main.js — plays the landing clip if she stays put. */

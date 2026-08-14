@@ -173,6 +173,8 @@ async function boot() {
     new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()
   );
   const aimVec = new THREE.Vector3();
+  let aimRefYaw = 0;       // camera yaw frozen at the frame the aim-hold engaged
+  let wasAiming = false;
 
   // ── input + hud ──────────────────────────────────────────────────────────
   const dom = {
@@ -232,20 +234,36 @@ async function boot() {
       promptTarget = null;
     }
 
-    // ── hook aim-hold ──────────────────────────────────────────────────────
-    // While the hold is active the stick steers the throw. The override is set
-    // BEFORE hook.update and left in place across the release frame — the stick
-    // zeroes on lift, so without the latch every steered throw would revert to
-    // the camera heading at the last instant. Hook clears it when it fires.
+    // ── hook aim-hold: the twin-stick posture ──────────────────────────────
+    // While the hold is active the stick steers the throw, she FACES the held
+    // direction, and the camera works its way around behind it — so the hold
+    // doubles as a look control: hold forward and pull the move stick back to
+    // run backwards, hold right while running left, and so on. The strafe
+    // animations key off the same lock.
+    //
+    // The stick direction is read against the camera yaw FROZEN at the moment
+    // the hold engaged. Reading the live yaw would feed back — the camera
+    // chases the aim, the aim re-derives from the camera — and a held diagonal
+    // would orbit forever instead of settling.
+    //
+    // The override is set BEFORE hook.update and left in place across the
+    // release frame — the stick zeroes on lift, so without the latch every
+    // steered throw would revert to the camera heading at the last instant.
+    // Hook clears it when it fires.
     const aiming = input.hookAim.active;
+    if (aiming && !wasAiming) aimRefYaw = follow.yaw;
+    wasAiming = aiming;
     if (aiming && input.hookAim.mag > 0.30) {
-      const c = Math.cos(follow.yaw), sn = Math.sin(follow.yaw);
+      const c = Math.cos(aimRefYaw), sn = Math.sin(aimRefYaw);
       const sx = input.hookAim.x, sy = -input.hookAim.y;   // screen y is down
       aimVec.set(sx * c - sy * sn, 0, -sx * sn - sy * c).normalize();
       hook.aimOverride = aimVec;
+      peggy.faceLock = Math.atan2(aimVec.x, aimVec.z);
+      follow.attract(peggy.faceLock);
     } else if (!aiming && !input.hook.pressed && !hook.active) {
       hook.aimOverride = null;
     }
+    if (!aiming) peggy.faceLock = null;
 
     peggy.update(dt, input.move, input, follow.yaw);
     if (input.recentre.pressed) follow.recentre(peggy);
@@ -378,6 +396,7 @@ async function boot() {
       time,
       hookActive: hook.active,
       hookCharge: input.hookCharge,
+      faceLocked: peggy.faceLock != null,
     });
 
     water.update(dt, camera);

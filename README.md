@@ -51,7 +51,7 @@ you're on.
 | Dive | **flick** left stick down | `C` | B |
 | Jump / **Interact** | **tap** right stick — tap again in the air to **double jump** | `Space` | A |
 | Melee combo | **flick** right stick — chain three: forehand, backhand, spin | click, or `V` | X |
-| Hook | **hold** right stick to aim, release to throw | `F` | RT |
+| Hook / **look** | **hold** right stick — she faces the held direction, camera follows; release throws | `F` | RT |
 
 ### The four gestures
 
@@ -61,7 +61,7 @@ by deflection over time:
 | Gesture | Motion | Verb |
 |---|---|---|
 | **tap** | down, barely moves, up fast | jump (again in the air: double jump) |
-| **hold** | down and REST — deflected or not | aim the hook that way; release throws |
+| **hold** | down and REST — deflected or not | look + aim the hook that way; release throws |
 | **flick** | snapped out and released/rebounded | melee — chain three for the combo |
 | **swipe** | travelling | pan the camera |
 
@@ -78,9 +78,17 @@ pan). Camera pixels are buffered while that's undecided — dropped on a melee,
 flushed on a pan — so a swipe never fires a sword and a sword never whips the
 view.
 
-**Holding shows the throw.** From the moment the hold engages, a dashed gold
-arc draws the rope's flight path, the lock-on diamond marks what the assist
-has picked, and deflecting the stick steers the throw — release to commit.
+**Holding shows the throw — and a hold is twin-stick.** From the moment the
+hold engages, a dashed gold arc draws the rope's flight path, the lock-on
+diamond marks what the assist has picked, and deflecting the stick steers the
+throw — release to commit. While it's held, the stick is the second stick of
+a twin-stick game: she FACES the held direction, the camera eases around
+behind it, and the left stick keeps moving her in screen space — run
+backwards while looking forward, strafe across a target, circle a crab with
+the throw charged. The `run_backward` / strafe clips key off exactly this
+state. The aim reads against the camera yaw FROZEN when the hold engaged;
+read the live yaw instead and it feeds back through the chasing camera — a
+held diagonal would orbit forever instead of settling.
 A touch that starts as a camera drag can never become an aim, and a touch
 that has flicked can never become one either, so combo mashing and camera
 play never trip into a hook throw.
@@ -196,8 +204,8 @@ tests/
 
 ### Two things worth knowing before editing
 
-**Units are metres and seconds.** Peggy is 1.55 m tall, runs at 6.5 m/s, jumps
-2.3 m. Sea level is `y = 0` everywhere.
+**Units are metres and seconds.** Peggy is 1.55 m tall, runs at 7.2 m/s, jumps
+2.6 m. Sea level is `y = 0` everywhere.
 
 **Smoothing is frame-rate independent.** Use `damp(current, target, halfLife,
 dt)`, never a constant per-frame lerp factor — those judder as soon as frame
@@ -213,8 +221,8 @@ exercises one thing, and `npm test` asserts against them:
 - **the beach** — wading in and out, the swim↔walk handover
 - **the stair crates** — rises of 0.35 / 0.50 / 0.70 m against a 0.52 m step
   height, so the first two are walkable and the third must be jumped
-- **the gap** — 3.4 m (comfortable) and 4.2 m (tight) against a ~5.4 m running
-  jump; neither clearable from a standstill
+- **the gap** — 3.4 m and 4.2 m against a ~7.7 m full-momentum running jump;
+  neither clearable from a standstill
 - **the mast** — swing anchors at three heights, crow's nest reachable only by
   swinging
 - **the wreck** — reel anchors and a roof

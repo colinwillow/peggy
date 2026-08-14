@@ -43,6 +43,11 @@ const CAM = {
   // player taps to snap it back when they want it.
   recentreHL: 0.11,      // fast enough to feel like a snap, slow enough to read
 
+  // Twin-stick attract: while the right stick HOLDS a direction, the camera
+  // keeps easing around behind it. Slower than a recentre on purpose — this is
+  // "always adjusting", a follow, not a snap.
+  attractHL: 0.30,
+
   lookAhead: 1.5,
   lookAheadHL: 0.35,
 
@@ -103,7 +108,22 @@ export class FollowCamera {
 
   addTrauma(t) { this.trauma = clamp01(this.trauma + t); }
 
+  /**
+   * Ask the camera to work its way around behind `yaw` (a facing; the camera
+   * sits at facing + PI). One-frame request — call it every frame the pull
+   * should hold, and it simply lapses when you stop.
+   */
+  attract(yaw) { this._attractYaw = yaw + Math.PI; }
+
   update(dt, peggy, look) {
+    // ── twin-stick attract ────────────────────────────────────────────────
+    // Runs before manual input so a deliberate swipe mid-hold still wins the
+    // frame (it moves targetYaw after we do).
+    if (this._attractYaw != null) {
+      this.targetYaw = dampAngle(this.targetYaw, this._attractYaw, CAM.attractHL, dt);
+      this._attractYaw = null;
+      this._recentring = false;
+    }
     // ── manual rotation ───────────────────────────────────────────────────
     // Two inputs: a rate from held sticks (gamepad, Q/E) and swiped pixels
     // from touch/mouse. Horizontal only; look.y is ignored — see CAM.pitch.

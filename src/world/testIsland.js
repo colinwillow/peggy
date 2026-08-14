@@ -664,7 +664,7 @@ export function buildTestIsland(scene) {
 
   // ── THE ARCHIPELAGO: a stepping-stone hop course off the south beach ─────
   // Gaps are tuned against the measured movement numbers, not guessed:
-  // a running jump covers 4.44m and run + double jump about 7m, so the course
+  // a running jump covers ~7m and run + double jump ~10m, so the course
   // escalates walk-on -> easy -> running -> full-momentum -> double-jump, and
   // the last gap is honestly impossible without the double. Pillar tops rise a
   // little each step so falling short drops you in the sea, which in this game
@@ -673,13 +673,15 @@ export function buildTestIsland(scene) {
     const R = 1.7;                       // pillar top radius
     const rockMat = toonMaterial({ color: 0x93856f, rimStrength: 0.3 });
     const capMat = toonMaterial({ color: 0xf6e7b2, rimStrength: 0.25 });
-    // [x, z, topHeight] — consecutive edge gaps: 2.6, 3.4, 4.2, 5.6
+    // [x, z, topHeight] — consecutive edge gaps: 2.7, 3.6, 4.5, 8.4.
+    // The last pillar stands at the islet's rim, so the double-jump beat is
+    // the fourth gap and landing it delivers you to the treasure.
     const steps = [
       [-6.0, -52.0, 1.2],
       [-5.2, -58.0, 1.6],
       [-3.6, -64.8, 2.0],
       [-1.4, -72.4, 2.4],
-      [1.6, -81.4, 2.6],
+      [2.3, -83.6, 2.6],
     ];
     let prev = null;
     for (const [px, pz, top] of steps) {

@@ -72,10 +72,17 @@ export:
   and render space genuinely disagree on this export.)
 - **Takes map as**: idle, walk, run, running_jump -> jump, in_air -> fall,
   landing -> land. The `.001` duplicates, `tpose` and `CINEMA_4D_Main` are
-  ignored. `left_strafe` / `right_strafe` / `run_backward` load but are unused
-  until there's a strafe mode.
+  ignored.
+- **The jump sequences as takeoff -> in-air -> landing**: `running_jump`
+  plays once from the moment she leaves the ground (and again on the double
+  jump), `in_air` holds for the whole rest of the arc — rising or falling —
+  and `landing` plays on impact. Nothing is keyed on the apex, so there is no
+  clip pop at the top of the arc.
+- **The strafes are live**: while the right stick is held (the twin-stick
+  aim), her facing is locked and `run_backward` / `left_strafe` /
+  `right_strafe` are chosen from where the velocity points in her frame.
 - **Clips are cleanly in-place** (hips drift ~2cm) — keep authoring that way,
   the controller owns all world movement.
 - **Still missing**: swim, dive, hook throw, swing, melee clips. Their states
-  currently fall back (swing/dive -> in_air, melee -> locomotion + the swipe
-  arc effect).
+  currently fall back (swim/swing/dive -> in_air, melee -> locomotion + the
+  swipe arc effect).

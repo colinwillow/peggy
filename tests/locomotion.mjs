@@ -475,13 +475,31 @@ const out = await page.evaluate(() => {
     setMove(0, 1); step(360);                    // full momentum
     const jz = P.position.z;
     press('jump'); step(1); release('jump');
-    step(40);                                    // near the apex
+    step(55);                                    // near the apex
     press('jump'); step(1); release('jump');     // double
     let guard = 0;
     while (!P.grounded && guard++ < 800) step(1);
     r.doubleJumpDistance = +Math.abs(P.position.z - jz).toFixed(2);
-    // The course's last edge gap is 5.6m:clearable only with the double.
-    r.lastGapNeedsDouble = r.runJumpDistance < 5.6 && r.doubleJumpDistance > 6.0;
+    // The course's last edge gap is 8.4m: clearable only with the double.
+    r.lastGapNeedsDouble = r.runJumpDistance < 8.4 && r.doubleJumpDistance > 8.8;
+  }
+
+  // ── twin-stick face lock: run backwards while looking forward ───────────
+  // While faceLock holds a yaw, travel must not steal her facing back.
+  {
+    P.teleport(0, L.terrainHeight(0, 0) + 0.5, 0);
+    setMove(0, 0); step(60);
+    P.facing = 0;
+    P.faceLock = 0;                     // eyes on +Z...
+    setMove(0, 1); step(240);           // ...feet running toward -Z
+    const drift = Math.abs(Math.atan2(Math.sin(P.facing), Math.cos(P.facing)));
+    r.faceLock = {
+      held: drift < 0.08,
+      moved: P.position.z < -3,
+      speed: +Math.hypot(P.velocity.x, P.velocity.z).toFixed(2),
+    };
+    P.faceLock = null;
+    setMove(0, 0); step(30);
   }
 
   // ── monkey bars: the hook latches ALONG the bar, not at its centre ──────
@@ -533,13 +551,13 @@ const checks = [
   ['stick goes where screen says',  out.worstStickDot, 0.97, 1.01],
   ['forward moves AWAY from camera', out.worstAwayDot, 0.97, 1.01],
   ['every push actually moves her',  out.minStickMove, 0.5, 99],
-  ['top speed 6.5 m/s',            out.topSpeed, 6.3, 6.7],
-  ['reaches top speed by 2s',      out.accel.find((a) => a.t === 2).speed, 6.0, 6.7],
-  ['starts at a jog, not a crawl', out.accel[0].speed, 0.9, 2.2],
-  ['jump height ~2.25m',           out.jumpHeight, 2.05, 2.45],
-  ['jump airtime ~0.79s',          out.jumpAirtime, 0.68, 0.92],
-  ['running jump clears 4.2m gap', out.runJumpDistance, 4.25, 5.55],
-  ['stops within 2m',              out.stopDistance, 0.8, 2.2],
+  ['top speed 7.2 m/s',            out.topSpeed, 7.0, 7.4],
+  ['reaches top speed by 2s',      out.accel.find((a) => a.t === 2).speed, 6.6, 7.4],
+  ['starts at a jog, not a crawl', out.accel[0].speed, 0.9, 2.4],
+  ['jump height ~2.6m',            out.jumpHeight, 2.35, 2.8],
+  ['jump airtime ~1.0s',           out.jumpAirtime, 0.85, 1.15],
+  ['running jump clears the 4.5m gap', out.runJumpDistance, 5.5, 8.3],
+  ['stops within 2.5m',            out.stopDistance, 0.8, 2.6],
   ['dives at least 6m down',       out.diveDepth, 6, 40],
   ['floats without drifting',      out.floatDrift, 0, 0.05],
   ['slides DOWN the steep spire',  out.steepSlopeGain, -60, -1.0],
@@ -585,6 +603,8 @@ const bools = [
   ['the forehand does not hit behind',  out.combo.earlyHitsBehindBlocked],
   ['combo resets after the window',     out.combo.resetsAfterWindow],
   ['final gap needs the double jump',   out.lastGapNeedsDouble],
+  ['face lock holds while running away', out.faceLock.held],
+  ['...and she still actually runs',    out.faceLock.moved],
   ['monkey bars exist',                 out.bars.exists],
   ['bar latch lands near the throw',    out.bars.latchNearThrow],
   ['bar latch is not just the centre',  out.bars.latchNotCentre],

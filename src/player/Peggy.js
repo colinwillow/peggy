@@ -36,7 +36,7 @@ const TUNING = {
   eyeHeight: 1.2,
 
   walkSpeed: 3.1,
-  runSpeed: 6.5,
+  runSpeed: 7.2,
   momentumBuild: 0.55,    // per second toward full momentum
   momentumDecay: 1.6,
   momentumFloor: 0.62,    // cold start is a jog, not a standstill
@@ -49,10 +49,17 @@ const TUNING = {
   turnHL: 0.055,          // land turning: deliberate, with a bit of lean
   swimTurnHL: 0.028,      // water turning: immediate
 
-  gravity: 24.0,
-  fallGravity: 36.0,      // heavier on the way down => snappy, non-floaty arc
+  // ONE gravity, both directions. This game had the genre-standard asymmetric
+  // pair (light up, heavy down) and the verdict from play was that the apex
+  // felt like a KINK — "gets to the top and just linearly switches and falls".
+  // He was right: the switch is a visible second-derivative pop at the exact
+  // moment the eye is tracking the arc's most legible point. A real parabola
+  // reads as flow; the airtime that asymmetric gravity bought is bought back
+  // by lowering g instead.
+  gravity: 21.0,
+  fallGravity: 21.0,      // = gravity. Kept as a knob, but see above before splitting them.
   maxFall: 32.0,
-  jumpSpeed: 10.4,        // ~2.25m apex — she's a platformer lead, let her fly
+  jumpSpeed: 10.4,        // ~2.6m apex, ~1s of air — she's a platformer lead, let her fly
   coyoteTime: 0.12,       // grace after walking off a ledge
   jumpBuffer: 0.14,       // grace for pressing jump just before landing
   stepHeight: 0.52,       // ledges under this are stepped onto, not blocked
@@ -138,6 +145,14 @@ export class Peggy {
 
     /** Set by Hook.js while a grapple owns the movement. */
     this.hookOverride = null;
+
+    /**
+     * Twin-stick facing: a world yaw she turns to and HOLDS while set (null
+     * when free). main.js sets it from the right-stick aim-hold, which is what
+     * lets her run backwards while looking forward — locomotion keeps working
+     * in camera space, only the body's orientation is claimed.
+     */
+    this.faceLock = null;
 
     this.events = [];             // drained by the audio/FX layer each frame
 
@@ -332,9 +347,8 @@ export class Peggy {
     this.groundedTime = 0;
     this._coyote = Math.max(0, this._coyote - dt);
 
-    // Asymmetric gravity: float a touch at the apex, then fall hard. This is
-    // the difference between a jump that feels responsive and one that feels
-    // like the moon, and it costs one branch.
+    // One gravity both ways — a clean parabola. See the note at the TUNING
+    // block before reintroducing an up/down split here.
     const g = this.velocity.y > 0 ? T.gravity : T.fallGravity;
     this.velocity.y = Math.max(this.velocity.y - g * dt, -T.maxFall);
 
@@ -360,9 +374,16 @@ export class Peggy {
     this._applyIntent(dt, wishX, wishZ, wishMag, T.airAccelHL, top, T.airControl);
     this._faceMotion(dt, wishX, wishZ, wishMag, T.turnHL * 1.6);
 
-    // Land.
+    // Land — PREDICTIVELY: catch any frame whose integration would carry her
+    // through the surface, not just frames that start within 2cm of it. The
+    // difference is a whole class of race: starting 3cm up at falling speed,
+    // this check used to miss, integration sank her below a crate's top, and
+    // the wall resolver — for whom a solid you are inside is a wall — ejected
+    // her SIDEWAYS off the ledge she was landing on. Whether that fired
+    // depended on the exact phase of the fall: a coin-flip per ledge, per
+    // gravity tuning.
     const ground = this.level.groundAt(this.position.x, this.position.z, this.position.y + 0.1, this._ground, T.groundProbe);
-    if (this.velocity.y <= 0 && this.position.y <= ground.y + 0.02) {
+    if (this.velocity.y <= 0 && this.position.y + this.velocity.y * dt <= ground.y + 0.02) {
       this.position.y = ground.y;
       this._landImpact = -this.velocity.y;
       this.velocity.y = 0;
@@ -539,6 +560,13 @@ export class Peggy {
   }
 
   _faceMotion(dt, wishX, wishZ, wishMag, turnHL) {
+    // A face lock outranks travel: while the right stick holds a direction she
+    // faces it no matter which way her feet carry her. Fast but damped — a
+    // snap here reads as teleporting through the turn.
+    if (this.faceLock != null) {
+      this.facing = dampAngle(this.facing, this.faceLock, 0.055, dt);
+      return;
+    }
     if (wishMag < 0.12) return;
     const heading = Math.atan2(wishX, wishZ);
     // Turn faster the further off-heading she is, so a 180 doesn't feel like
