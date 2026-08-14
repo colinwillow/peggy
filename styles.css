@@ -267,3 +267,78 @@ body.touch .legend-kbm { display: none; }
   transform: scale(calc(1 + var(--charge, 0) * 1.4));
   box-shadow: 0 0 calc(6px + var(--charge, 0) * 18px) rgba(224, 181, 82, 0.75);
 }
+
+/* ── CONTEXT PROMPT ──────────────────────────────────────────────────────
+   Sits on the right stick, because interact and jump share that input. The
+   prompt IS the teaching: you learn what a tap does right now by looking at
+   the thumb you'd tap with, not from a tutorial string somewhere else. */
+
+#prompt {
+  position: fixed;
+  z-index: 7;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-items: center;
+  transition: opacity 160ms ease-out;
+}
+#prompt.hidden { opacity: 0; }
+
+/* the flashing ring */
+.prompt-ring {
+  grid-area: 1 / 1;
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  border: 3px solid var(--gold);
+  box-shadow: 0 0 20px rgba(224, 181, 82, 0.55),
+              inset 0 0 16px rgba(224, 181, 82, 0.25);
+  animation: promptPulse 1.25s ease-in-out infinite;
+}
+@keyframes promptPulse {
+  0%, 100% { transform: scale(1);    opacity: 0.85; }
+  50%      { transform: scale(1.14); opacity: 0.35; }
+}
+
+/* the little button in the middle, with the icon on it */
+.prompt-disc {
+  grid-area: 1 / 1;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 38% 32%, #ffe6a8, #e0b552 60%, #a87c22);
+  box-shadow: 0 3px 0 #7d5a17, 0 8px 20px rgba(0, 0, 0, 0.5);
+  animation: promptBob 1.25s ease-in-out infinite;
+}
+@keyframes promptBob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-3px); }
+}
+
+.prompt-icon { width: 30px; height: 30px; color: #24160a; }
+
+.prompt-label {
+  grid-area: 1 / 1;
+  align-self: end;
+  transform: translateY(40px);
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  color: var(--parchment);
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.9);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .prompt-ring, .prompt-disc { animation: none; }
+}
+
+/* Desktop gets the same prompt, parked centre-bottom rather than on a stick,
+   since there's no thumb to attach it to. */
+@media (hover: hover) and (pointer: fine) {
+  .prompt-ring  { width: 76px; height: 76px; }
+  .prompt-disc  { width: 46px; height: 46px; }
+  .prompt-icon  { width: 24px; height: 24px; }
+}

@@ -130,7 +130,12 @@ async function boot() {
     fps: document.getElementById('hud-fps'),
     hint: document.getElementById('hud-hint'),
     reticle: document.getElementById('reticle'),
+    prompt: document.getElementById('prompt'),
+    promptIcon: document.querySelector('#prompt use'),
+    promptLabel: document.querySelector('.prompt-label'),
   };
+  let promptTarget = null;
+  let promptIconKey = '';
   document.body.classList.toggle('touch', input.isTouch);
 
   // ── frame state ──────────────────────────────────────────────────────────
@@ -142,6 +147,21 @@ async function boot() {
 
   function update(dt, time) {
     input.sample(dt);
+
+    // ── context action ─────────────────────────────────────────────────────
+    // Interact and jump are the SAME tap. Resolve it here, before the
+    // controller sees the press, and consume the edge when something is in
+    // range — so a tap next to a chest opens the chest instead of hopping.
+    promptTarget = peggy.grounded && !hook.active
+      ? level.findInteractable(peggy.position, peggy.facing)
+      : null;
+    if (promptTarget && input.jump.pressed) {
+      input.jump.pressed = false;
+      promptTarget.used = true;
+      promptTarget.onInteract(peggy);
+      follow.addTrauma(0.08);
+      promptTarget = null;
+    }
 
     peggy.update(dt, input.move, input, follow.yaw);
     if (input.recentre.pressed) follow.recentre(peggy);
@@ -244,6 +264,19 @@ async function boot() {
       hud.reticle.classList.toggle('locked', !!target);
       hud.reticle.classList.toggle('charging', input.hookCharge > 0.02);
       hud.reticle.style.setProperty('--charge', input.hookCharge.toFixed(2));
+
+      // The prompt rides the right stick — wherever the thumb last left it.
+      hud.prompt.classList.toggle('hidden', !promptTarget);
+      if (promptTarget) {
+        if (promptTarget.icon !== promptIconKey) {
+          promptIconKey = promptTarget.icon;
+          hud.promptIcon.setAttribute('href', '#i-' + promptIconKey);
+          hud.promptLabel.textContent = promptTarget.label;
+        }
+        const sR = input.stickR;
+        hud.prompt.style.left = (input.isTouch ? sR.centreX : innerWidth / 2) + 'px';
+        hud.prompt.style.top = (input.isTouch ? sR.centreY : innerHeight * 0.74) + 'px';
+      }
     }
   }
 

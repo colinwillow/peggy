@@ -343,6 +343,31 @@ const out = await page.evaluate(() => {
     endsAfterSwing: P.meleeTimer === 0,
   };
 
+  // ── context interact: proximity + facing ────────────────────────────────
+  {
+    const chest = L.interactables.find((i) => i.icon === 'chest');
+    const near = (dx, dz, facing) => {
+      P.teleport(chest.pos.x + dx, chest.pos.y, chest.pos.z + dz);
+      P.facing = facing;
+      return !!L.findInteractable(P.position, facing);
+    };
+    // stand 1.6m south of it, facing north (+z) = toward it
+    const toward = Math.atan2(0, 1);
+    const away = Math.atan2(0, -1);
+    r.interact = {
+      facingIt: near(0, -1.6, toward),
+      facingAway: near(0, -1.6, away),
+      tooFar: near(0, -9.0, toward),
+      onTopOfIt: near(0, -0.3, away),   // facing stops mattering up close
+      count: L.interactables.length,
+      icons: [...new Set(L.interactables.map((i) => i.icon))].sort(),
+    };
+    // once-only prompts stop offering themselves
+    chest.used = true;
+    r.interact.afterUse = near(0, -1.6, toward);
+    chest.used = false;
+  }
+
   return r;
 });
 
@@ -384,6 +409,12 @@ const bools = [
   ['melee does NOT hit behind',         !out.melee.hitsBack],
   ['melee does NOT hit out of range',   !out.melee.hitsFar],
   ['melee swing ends',                  out.melee.endsAfterSwing],
+  ['prompt shows when facing it',       out.interact.facingIt],
+  ['prompt hides when facing away',     !out.interact.facingAway],
+  ['prompt hides when too far',         !out.interact.tooFar],
+  ['prompt shows point-blank',          out.interact.onTopOfIt],
+  ['used-up prompt stops offering',     !out.interact.afterUse],
+  ['three icon kinds in the level',     out.interact.icons.length === 3],
   ['swing holds the rope',              out.hook.stateLater === 'swinging' && out.hook.ropeLength > 1],
   ['never falls through the world',     out.fellThrough.below === 0],
   ['no console errors',                 errors.filter((e) => !/peggy\.glb|404/.test(e)).length === 0],

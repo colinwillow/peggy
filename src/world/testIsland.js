@@ -87,6 +87,8 @@ export function buildTestIsland(scene) {
 
   /** Surface heights of the stair run, exported so tests can assert on them. */
   const stairTops = [];
+  /** Props with an `openAnim(dt)` in userData — ticked every frame. */
+  const animated = [];
 
   /** A visible ring where the hook can latch, so anchors are readable. */
   function anchor(x, y, z, kind = 'swing') {
@@ -317,6 +319,102 @@ export function buildTestIsland(scene) {
     props.add(chest);
     // Only reachable by climbing the spire island — or by hooking your way up.
     anchor(cx + 3, base + 6, cz + 2, 'swing');
+
+    // OPEN it. The lid hinges back and the gold inside is revealed — the whole
+    // point of a context action is that the world visibly answers the tap.
+    const loot = new THREE.Group();
+    for (let i = 0; i < 14; i++) {
+      const coin = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.022, 10), goldMat);
+      coin.position.set(rand(-0.45, 0.45), rand(-0.1, 0.12), rand(-0.28, 0.28));
+      coin.rotation.set(rand(0, 1), rand(0, 3), rand(-0.5, 0.5));
+      loot.add(coin);
+    }
+    loot.position.set(0, 0.28, 0);
+    loot.visible = false;
+    chest.add(loot);
+
+    level.addInteractable({
+      pos: new THREE.Vector3(cx, base + 0.9, cz),
+      radius: 2.8, icon: 'chest', label: 'OPEN',
+      onInteract: () => { chest.userData.opening = 1; loot.visible = true; },
+    });
+    chest.userData.openAnim = (dt) => {
+      if (!chest.userData.opening) return;
+      lid.rotation.x = Math.max(lid.rotation.x - 3.2 * dt, -2.1);
+      loot.position.y = Math.min(loot.position.y + 0.5 * dt, 0.42);
+    };
+    animated.push(chest);
+  }
+
+  // ── the shack: a door, because a door is the clearest context action ─────
+  {
+    const sx = 18, sz = 14;
+    const base = g(sx, sz);
+    box(sx, base, sz, 4.4, 3.0, 3.6, woodMat, 0.3);
+    // roof
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(3.6, 1.5, 4), woodDarkMat);
+    roof.position.set(sx, base + 3.7, sz);
+    roof.rotation.y = 0.3 + Math.PI / 4;
+    roof.castShadow = true;
+    props.add(roof);
+
+    // the door itself, hinged at one edge so it swings rather than slides
+    const hinge = new THREE.Group();
+    const dw = 1.0, dh = 2.0;
+    const door = new THREE.Mesh(new THREE.BoxGeometry(dw, dh, 0.12), woodDarkMat);
+    door.position.x = dw / 2;              // offset so the group's origin IS the hinge
+    door.castShadow = true;
+    hinge.add(door);
+    const knob = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), goldMat);
+    knob.position.set(dw - 0.15, 0, 0.1);
+    door.add(knob);
+    // sit it on the shack's front face, allowing for the 0.3 rad rotation
+    const fx = Math.sin(0.3), fz = Math.cos(0.3);
+    hinge.position.set(sx + fx * 1.85 - fz * (dw / 2), base + dh / 2, sz + fz * 1.85 + fx * (dw / 2));
+    hinge.rotation.y = 0.3;
+    props.add(hinge);
+
+    level.addInteractable({
+      pos: new THREE.Vector3(sx + fx * 2.4, base + 1.0, sz + fz * 2.4),
+      radius: 2.6, icon: 'door', label: 'OPEN',
+      onInteract: () => { hinge.userData.opening = 1; },
+    });
+    hinge.userData.openAnim = (dt) => {
+      if (!hinge.userData.opening) return;
+      hinge.rotation.y = Math.max(hinge.rotation.y - 3.4 * dt, 0.3 - 2.2);
+    };
+    animated.push(hinge);
+  }
+
+  // ── the ship's wheel on the wreck ────────────────────────────────────────
+  {
+    const wx = 30, wz = 20;
+    const base = g(wx, wz);
+    const wheel = new THREE.Group();
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.075, 8, 20), woodMat);
+    wheel.add(rim);
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * TAU;
+      const spoke = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 1.55, 6), woodDarkMat);
+      spoke.rotation.z = a;
+      wheel.add(spoke);
+    }
+    wheel.position.set(wx - 3.4, base + 5.0, wz - 1.2);
+    wheel.rotation.y = 0.42;
+    props.add(wheel);
+
+    level.addInteractable({
+      pos: wheel.position.clone(),
+      radius: 2.4, icon: 'wheel', label: 'TAKE THE HELM', once: false,
+      onInteract: () => { wheel.userData.spin = (wheel.userData.spin || 0) + 9; },
+    });
+    wheel.userData.openAnim = (dt) => {
+      if (!wheel.userData.spin) return;
+      const s = wheel.userData.spin;
+      wheel.rotation.z += s * dt;
+      wheel.userData.spin = Math.abs(s) < 0.05 ? 0 : s * Math.pow(0.22, dt);
+    };
+    animated.push(wheel);
   }
 
   // ── a dock out over the lagoon: the swim handover ────────────────────────
@@ -345,6 +443,7 @@ export function buildTestIsland(scene) {
    * button — you need something in the world to move when you hit it.
    */
   function updateLoose(dt, water) {
+    for (const a of animated) if (a.userData.openAnim) a.userData.openAnim(dt);
     for (const h of loose) {
       if (h.held) continue;
       const moving = h.vel.lengthSq() > 1e-4;

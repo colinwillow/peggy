@@ -92,6 +92,10 @@ export class Joystick {
     this._peakAngle = 0;
     this._pressedCentre = false;
 
+    /** Where the visible stick sits when nothing is touching it. */
+    this.parkX = 0;
+    this.parkY = 0;
+
     this._onStart = this._onStart.bind(this);
     this._onMove = this._onMove.bind(this);
     this._onEnd = this._onEnd.bind(this);
@@ -288,6 +292,17 @@ export class Joystick {
       this.knob.style.top = this.centreY + 'px';
     }
     if (this.ring) this.ring.style.opacity = '0.35';
+  }
+
+  /**
+   * Put the visible stick somewhere sensible before it's ever been touched.
+   * Needed because the context prompt rides on the right stick — with no park
+   * position the very first prompt would appear in the top-left corner.
+   */
+  park(x, y) {
+    this.parkX = this.centreX = x;
+    this.parkY = this.centreY = y;
+    if (!this.held) this._showAt(x, y, 0.32);
   }
 
   dispose() {

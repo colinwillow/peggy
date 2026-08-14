@@ -28,6 +28,7 @@ to exercise it.
 | Surface swimming and free 3D diving | Real levels (there is one test island) |
 | Hook: swing, reel, haul | Underwater rig (see below) |
 | Melee swipe (knocks loose props) | Guns / projectiles |
+| Context interact: chest, door, helm | Dialogue, inventory |
 | Toon shading, ink outlines, toon sea | Save state, menus, HUD proper |
 | Follow camera with collision | The actual Peggy model — a proxy stands in |
 
@@ -48,7 +49,7 @@ you're on.
 | Turn camera | right stick, **horizontal only** | mouse X, or `Q`/`E` | right stick X |
 | Centre camera | **tap** left stick | `R` | L3 |
 | Dive | **flick** left stick down | `C` | B |
-| Jump | **tap** right stick | `Space` | A |
+| Jump / **Interact** | **tap** right stick | `Space` | A |
 | Melee | **flick** right stick | click, or `V` | X |
 | Hook | **hold** right stick, release | `F` | RT |
 
@@ -79,6 +80,20 @@ join the same thumb rather than growing a button row.
 **The left stick is locomotion and nothing else.** Tapping it recentres the
 camera behind her, so a player who only wants to run around never has to
 involve their right thumb at all.
+
+### Interact is jump
+
+Same tap, different verb by proximity. Walk near a chest, a door or the ship's
+wheel and the right stick grows a flashing gold ring with the icon of the thing
+on it — tap and you use it instead of hopping.
+
+The prompt lives **on the stick** rather than in a corner of the HUD, because
+the stick is the thing you're about to press. You learn the verb by looking at
+the thumb that performs it.
+
+Because interact steals a jump, `findInteractable` requires her to be turned
+toward the thing (unless she's stood right on it, where facing stops meaning
+anything). That keeps the theft deliberate.
 
 The sticks are **floating**: each owns an invisible half of the screen and its
 centre appears wherever your thumb lands. You never look at your thumbs, so a

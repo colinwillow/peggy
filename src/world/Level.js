@@ -98,6 +98,8 @@ export class Level {
     this.grapplePoints = [];
     /** Loose objects the hook can reel in. */
     this.haulables = [];
+    /** Things a tap can act on when you're stood near them. */
+    this.interactables = [];
     this.seaLevel = 0;
     /** Below this, the terrain is open ocean and there is no floor at all. */
     this.abyss = -40;
@@ -117,6 +119,55 @@ export class Level {
   }
 
   addSolid(s) { this.solids.push(s); return this; }
+
+  /**
+   * Register a context action.
+   * @param {object} def
+   *   pos      THREE.Vector3 — where the prompt hovers
+   *   radius   how close she has to be
+   *   icon     key into the SVG sprite: 'chest' | 'door' | 'wheel'
+   *   label    short verb shown under the icon
+   *   onInteract(peggy) — return false to keep the prompt available
+   */
+  addInteractable(def) {
+    this.interactables.push({
+      pos: def.pos.clone(),
+      radius: def.radius ?? 2.6,
+      icon: def.icon ?? 'chest',
+      label: def.label ?? 'USE',
+      used: false,
+      once: def.once !== false,
+      onInteract: def.onInteract || (() => {}),
+    });
+    return this.interactables[this.interactables.length - 1];
+  }
+
+  /**
+   * Nearest usable thing to `pos`, preferring what she's facing.
+   *
+   * Facing matters because interact SHARES ITS INPUT WITH JUMP — every prompt
+   * that lights up is a jump the player can't make. Requiring her to be turned
+   * toward the thing keeps that theft deliberate rather than incidental.
+   */
+  findInteractable(pos, facing) {
+    const fx = Math.sin(facing), fz = Math.cos(facing);
+    let best = null, bestScore = Infinity;
+    for (const it of this.interactables) {
+      if (it.used && it.once) continue;
+      const dx = it.pos.x - pos.x, dz = it.pos.z - pos.z;
+      const dy = it.pos.y - pos.y;
+      if (Math.abs(dy) > 3.0) continue;
+      const d = Math.hypot(dx, dz);
+      if (d > it.radius) continue;
+      // Right on top of it, facing stops mattering — you can't turn toward
+      // something you're standing in.
+      const dot = d < 0.8 ? 1 : (dx * fx + dz * fz) / d;
+      if (dot < -0.15) continue;
+      const score = d * (1.5 - dot);
+      if (score < bestScore) { bestScore = score; best = it; }
+    }
+    return best;
+  }
 
   addGrapplePoint(pos, opts = {}) {
     this.grapplePoints.push({

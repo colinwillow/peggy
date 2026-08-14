@@ -98,6 +98,18 @@ export class Input {
       this.lastSource = 'touch';
     };
     this.stickR.onHoldRelease = () => { this.hook.tap(); this.lastSource = 'touch'; };
+
+    this._park();
+    addEventListener('resize', () => this._park());
+    addEventListener('orientationchange', () => setTimeout(() => this._park(), 250));
+  }
+
+  /** Default resting spots, low in each half where a thumb naturally sits. */
+  _park() {
+    if (this.stickL.held || this.stickR.held) return;
+    const y = innerHeight * (innerHeight < innerWidth ? 0.70 : 0.78);
+    this.stickL.park(innerWidth * 0.20, y);
+    this.stickR.park(innerWidth * 0.80, y);
   }
 
   // ── keyboard ─────────────────────────────────────────────────────────────

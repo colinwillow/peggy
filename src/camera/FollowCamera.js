@@ -48,6 +48,7 @@ const CAM = {
   swimDistance: 6.2,
   diveDistance: 5.4,
 
+  minDistance: 0.85,     // how close the boom may get when pinned against geometry
   collisionRadius: 0.42,
   collisionHL: 0.05,     // pull IN fast (else you see through the hill)...
   collisionOutHL: 0.42,  // ...and ease back OUT slowly
@@ -205,7 +206,10 @@ export class FollowCamera {
       const y = focus.y + dir.y * d;
       const g = this.level.groundAt(x, z, Infinity, this._ground || (this._ground = {}));
       if (y < g.y + CAM.collisionRadius) {
-        return Math.max((desired * (i - 1)) / steps, 1.2);
+        // Floor it low rather than at a comfortable distance. Pressed into a
+        // doorway there IS no comfortable distance, and a boom that refuses to
+        // come closer than a metre just ends up inside the wall instead.
+        return Math.max((desired * (i - 1)) / steps, CAM.minDistance);
       }
     }
     return desired;
