@@ -1,0 +1,261 @@
+/* Peggy — UI chrome.
+ *
+ * Mobile-first, literally: every rule here is written for a phone held in
+ * landscape, and the desktop case is the override at the bottom. The touch
+ * controls are positioned off the SAFE AREA, not off the viewport edge, because
+ * on any modern phone the viewport edge is under the home indicator or behind
+ * a camera cutout.
+ */
+
+:root {
+  --ink: #1a0f26;
+  --parchment: #f4e6c8;
+  --gold: #e0b552;
+  --sea: #1a6f8f;
+  --hot: #ff2d7a;
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #0e2740;
+  color: var(--parchment);
+  font-family: ui-rounded, "Avenir Next", "Segoe UI", system-ui, sans-serif;
+  /* Kill every browser gesture that would otherwise fight the game: text
+     selection on a long press, the pull-to-refresh bounce, double-tap zoom,
+     and the iOS tap highlight. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+  touch-action: none;
+}
+
+#game {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+
+/* ── TOUCH STICKS ────────────────────────────────────────────────────────
+   The zones are big and invisible; each owns a screen half and the full
+   height. A stick you have to find is a stick you look at, and looking at
+   your thumbs means not looking at the game. */
+
+.stick-zone {
+  position: fixed;
+  bottom: 0;
+  top: 0;
+  width: 50vw;
+  z-index: 5;
+  touch-action: none;
+}
+#zone-left { left: 0; }
+#zone-right { right: 0; }
+
+.stick-ring, .stick-knob {
+  position: fixed;
+  border-radius: 50%;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  z-index: 6;
+  opacity: 0;
+  transition: opacity 140ms ease-out;
+}
+
+.stick-ring {
+  width: 128px;
+  height: 128px;
+  border: 2.5px solid rgba(244, 230, 200, 0.34);
+  background: radial-gradient(circle, rgba(255,255,255,0.05), rgba(255,255,255,0.01) 70%);
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.28) inset;
+}
+
+.stick-knob {
+  width: 56px;
+  height: 56px;
+  border: 2px solid rgba(255, 255, 255, 0.6);
+}
+.stick-knob.left {
+  background: radial-gradient(circle at 38% 34%, #ffd9ea, #ef8ab0 55%, #c9447f);
+  box-shadow: 0 0 22px rgba(239, 138, 176, 0.55);
+}
+.stick-knob.right {
+  background: radial-gradient(circle at 38% 34%, #d8f7ef, #53d7c8 55%, #1a8f8a);
+  box-shadow: 0 0 22px rgba(83, 215, 200, 0.55);
+}
+
+/* ── RETICLE ─────────────────────────────────────────────────────────────
+   Small, centre-screen, and normally almost invisible. It only earns your
+   attention when there's actually something to hook. */
+
+#reticle {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  margin: -8px 0 0 -8px;
+  border: 2px solid rgba(244, 230, 200, 0.28);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 7;
+  transition: transform 120ms cubic-bezier(.2,.9,.3,1.4),
+              border-color 120ms, box-shadow 120ms;
+}
+#reticle.locked {
+  border-color: var(--gold);
+  box-shadow: 0 0 14px rgba(224, 181, 82, 0.85);
+  transform: scale(1.55);
+}
+
+/* ── HUD ─────────────────────────────────────────────────────────────────
+   Dev readout, top-left, deliberately plain. This is scaffolding for tuning
+   the controller, not the shipping HUD. */
+
+#hud {
+  position: fixed;
+  top: calc(var(--safe-t) + 10px);
+  left: calc(var(--safe-l) + 12px);
+  right: calc(var(--safe-r) + 12px);
+  z-index: 8;
+  pointer-events: none;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+
+#hud-left { display: flex; gap: 12px; }
+#hud-left span {
+  background: rgba(14, 22, 38, 0.55);
+  border: 1px solid rgba(244, 230, 200, 0.18);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-variant-numeric: tabular-nums;
+  backdrop-filter: blur(6px);
+}
+#hud-state { color: var(--gold); font-weight: 700; }
+
+#hud-hint {
+  margin-top: 10px;
+  color: rgba(244, 230, 200, 0.82);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
+  min-height: 14px;
+}
+
+/* ── LEGEND ──────────────────────────────────────────────────────────────
+   Shows the scheme for whichever input you're actually on. */
+
+#controls-legend {
+  position: fixed;
+  bottom: calc(var(--safe-b) + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 8;
+  pointer-events: none;
+  text-align: center;
+  font-size: 10.5px;
+  line-height: 1.7;
+  letter-spacing: 0.08em;
+  color: rgba(244, 230, 200, 0.5);
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8);
+  opacity: 0.9;
+}
+#controls-legend b { color: var(--gold); font-weight: 800; }
+.legend-touch { display: none; }
+body.touch .legend-touch { display: block; }
+body.touch .legend-kbm { display: none; }
+
+/* ── BOOT SCREEN ─────────────────────────────────────────────────────────── */
+
+#boot {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(ellipse at 50% 38%, #2c4d6e 0%, #16283f 48%, #0a1524 100%);
+  transition: opacity 500ms ease-out;
+}
+#boot.gone { opacity: 0; pointer-events: none; }
+
+.boot-inner { text-align: center; }
+.boot-inner h1 {
+  font-size: clamp(48px, 14vw, 110px);
+  letter-spacing: 0.04em;
+  font-weight: 900;
+  color: var(--parchment);
+  text-shadow:
+    0 3px 0 #b8447a,
+    0 6px 0 #7a2a52,
+    0 14px 34px rgba(0, 0, 0, 0.6);
+}
+.boot-skull {
+  font-size: 40px;
+  color: var(--hot);
+  margin: 6px 0 14px;
+  animation: bob 1.7s ease-in-out infinite;
+}
+.boot-inner p {
+  font-size: 12px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: rgba(244, 230, 200, 0.6);
+}
+@keyframes bob {
+  0%, 100% { transform: translateY(0) rotate(-4deg); }
+  50%      { transform: translateY(-8px) rotate(4deg); }
+}
+
+.boot-error {
+  max-width: min(90vw, 720px);
+  text-align: left;
+  padding: 20px;
+}
+.boot-error h1 {
+  font-size: 24px;
+  color: var(--hot);
+  text-shadow: none;
+  margin-bottom: 12px;
+}
+.boot-error pre {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  color: rgba(244, 230, 200, 0.85);
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 12px;
+  overflow: auto;
+  max-height: 60vh;
+}
+
+/* ── DESKTOP ─────────────────────────────────────────────────────────────
+   Hide the touch furniture entirely rather than leaving it faintly visible. */
+
+@media (hover: hover) and (pointer: fine) {
+  .stick-zone, .stick-ring, .stick-knob { display: none; }
+}
+
+/* Portrait on a phone: the sticks sit lower and the legend gets out of the
+   way, since there's less width to work with. */
+@media (orientation: portrait) and (pointer: coarse) {
+  .stick-zone { top: 30vh; }
+  #controls-legend { bottom: calc(var(--safe-b) + 6px); font-size: 9.5px; }
+}

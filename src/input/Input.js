@@ -1,0 +1,186 @@
+// One intent struct, three sources.
+//
+// Touch, keyboard+mouse and gamepad all write into the SAME shape, so nothing
+// downstream ever asks "are we on mobile?". Mobile-first means the touch layer
+// defines what actions exist — everything a desktop player can do has to be
+// reachable with two thumbs, and if it isn't, the design is wrong, not the
+// input layer.
+//
+// Actions:
+//   move   analogue, screen-space (+y is forward/up-screen)
+//   look   analogue, camera orbit
+//   jump   tap left stick   / Space        / A
+//   hook   tap right stick  / LMB          / RT      — hold to aim, release to fire
+//   dive   flick left stick down / Shift   / B       — dive underwater while swimming
+//   sprint hold right stick centre / Shift / L3
+
+import { Joystick } from './Joystick.js';
+import { clamp } from '../core/math.js';
+
+class Button {
+  constructor() { this.down = false; this.pressed = false; this.released = false; this._prev = false; }
+  set(v) { this.down = !!v; }
+  tap() { this._tapQueued = true; }
+  edge() {
+    this.pressed = (this.down && !this._prev) || !!this._tapQueued;
+    this.released = !this.down && this._prev;
+    this._prev = this.down;
+    this._tapQueued = false;
+  }
+}
+
+export class Input {
+  constructor(dom) {
+    this.move = { x: 0, y: 0, mag: 0 };
+    this.look = { x: 0, y: 0, mag: 0 };
+    this.jump = new Button();
+    this.hook = new Button();
+    this.dive = new Button();
+    this.sprint = new Button();
+    this.pause = new Button();
+
+    /** Which source produced the most recent input — used to swap the HUD. */
+    this.lastSource = 'touch';
+
+    this.isTouch = matchMedia('(hover: none) and (pointer: coarse)').matches
+      || ('ontouchstart' in window && navigator.maxTouchPoints > 0);
+
+    this._keys = Object.create(null);
+    this._mouse = { down: false, dx: 0, dy: 0, locked: false };
+
+    this._initTouch(dom);
+    this._initKeyboard();
+    this._initMouse(dom.canvas);
+  }
+
+  // ── touch ────────────────────────────────────────────────────────────────
+  _initTouch(dom) {
+    this.stickL = new Joystick(dom.zoneL, dom.knobL, dom.ringL, { floating: true });
+    this.stickR = new Joystick(dom.zoneR, dom.knobR, dom.ringR, { floating: true });
+
+    this.stickL.onTap = () => { this.jump.tap(); this.lastSource = 'touch'; };
+    this.stickR.onTap = () => { this.hook.tap(); this.lastSource = 'touch'; };
+  }
+
+  // ── keyboard ─────────────────────────────────────────────────────────────
+  _initKeyboard() {
+    addEventListener('keydown', (e) => {
+      if (e.repeat) return;
+      this._keys[e.code] = true;
+      this.lastSource = 'kbm';
+      if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
+    });
+    addEventListener('keyup', (e) => { this._keys[e.code] = false; });
+    addEventListener('blur', () => { this._keys = Object.create(null); });
+  }
+
+  // ── mouse ────────────────────────────────────────────────────────────────
+  _initMouse(canvas) {
+    canvas.addEventListener('mousedown', (e) => {
+      if (this.isTouch) return;
+      this.lastSource = 'kbm';
+      if (e.button === 0) this._mouse.down = true;
+      if (!this._mouse.locked && canvas.requestPointerLock) canvas.requestPointerLock();
+    });
+    addEventListener('mouseup', (e) => { if (e.button === 0) this._mouse.down = false; });
+    addEventListener('mousemove', (e) => {
+      if (this.isTouch || !this._mouse.locked) return;
+      this._mouse.dx += e.movementX;
+      this._mouse.dy += e.movementY;
+      this.lastSource = 'kbm';
+    });
+    document.addEventListener('pointerlockchange', () => {
+      this._mouse.locked = document.pointerLockElement === canvas;
+    });
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  // ── gamepad ──────────────────────────────────────────────────────────────
+  _pollGamepad() {
+    if (!navigator.getGamepads) return null;
+    let pads;
+    try { pads = navigator.getGamepads(); } catch { return null; }
+    for (const p of pads) if (p && p.connected) return p;
+    return null;
+  }
+
+  /** Call once per frame, before anything reads the intent. */
+  sample(dt) {
+    let mx = 0, my = 0, lx = 0, ly = 0;
+    let jump = false, hook = false, dive = false, sprint = false, pause = false;
+
+    // touch sticks — screen y is down, intent y is forward, hence the negation
+    if (this.stickL.held) {
+      mx += this.stickL.x; my += -this.stickL.y;
+      if (this.stickL.mag > 0.05) this.lastSource = 'touch';
+    }
+    if (this.stickR.held) {
+      lx += this.stickR.x; ly += -this.stickR.y;
+      sprint = sprint || this.stickR.centreHeld;
+      if (this.stickR.mag > 0.05) this.lastSource = 'touch';
+    }
+    // flick the move stick hard downward to dive
+    const flick = this.stickL.consumeFlick(0.9);
+    if (flick && Math.sin(flick.angle) > 0.6) dive = true;
+
+    // keyboard
+    const k = this._keys;
+    if (k.KeyW || k.ArrowUp) my += 1;
+    if (k.KeyS || k.ArrowDown) my -= 1;
+    if (k.KeyA || k.ArrowLeft) mx -= 1;
+    if (k.KeyD || k.ArrowRight) mx += 1;
+    if (k.KeyQ) lx -= 1;
+    if (k.KeyE) lx += 1;
+    jump = jump || !!k.Space;
+    dive = dive || !!k.KeyC;
+    sprint = sprint || !!(k.ShiftLeft || k.ShiftRight);
+    pause = pause || !!k.Escape;
+
+    // mouse look — accumulated deltas, converted to a per-second rate
+    if (this._mouse.locked) {
+      const s = 0.14;
+      lx += clamp(this._mouse.dx * s, -1, 1);
+      ly += clamp(-this._mouse.dy * s, -1, 1);
+    }
+    this._mouse.dx = 0; this._mouse.dy = 0;
+    hook = hook || this._mouse.down;
+
+    // gamepad
+    const gp = this._pollGamepad();
+    if (gp) {
+      const dz = (v) => (Math.abs(v) < 0.18 ? 0 : (v - Math.sign(v) * 0.18) / 0.82);
+      const gx = dz(gp.axes[0] || 0), gy = dz(gp.axes[1] || 0);
+      const rx = dz(gp.axes[2] || 0), ry = dz(gp.axes[3] || 0);
+      if (gx || gy || rx || ry) this.lastSource = 'pad';
+      mx += gx; my += -gy;
+      lx += rx; ly += -ry;
+      const btn = (i) => !!(gp.buttons[i] && gp.buttons[i].pressed);
+      if (btn(0)) { jump = true; this.lastSource = 'pad'; }
+      if (btn(1)) dive = true;
+      if (btn(7) || btn(5)) { hook = true; this.lastSource = 'pad'; }
+      if (btn(10)) sprint = true;
+      if (btn(9)) pause = true;
+    }
+
+    // normalise: diagonals must not be faster than cardinals
+    const mMag = Math.hypot(mx, my);
+    if (mMag > 1) { mx /= mMag; my /= mMag; }
+    const lMag = Math.hypot(lx, ly);
+    if (lMag > 1) { lx /= lMag; ly /= lMag; }
+
+    this.move.x = mx; this.move.y = my; this.move.mag = Math.min(mMag, 1);
+    this.look.x = lx; this.look.y = ly; this.look.mag = Math.min(lMag, 1);
+
+    this.jump.set(jump);
+    this.hook.set(hook);
+    this.dive.set(dive);
+    this.sprint.set(sprint);
+    this.pause.set(pause);
+
+    this.jump.edge();
+    this.hook.edge();
+    this.dive.edge();
+    this.sprint.edge();
+    this.pause.edge();
+  }
+}

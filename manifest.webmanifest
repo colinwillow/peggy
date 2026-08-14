@@ -1,0 +1,11 @@
+{
+  "name": "Peggy",
+  "short_name": "Peggy",
+  "description": "A toon-shaded third-person pirate adventure.",
+  "start_url": "./index.html",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0a1524",
+  "theme_color": "#0e2740",
+  "icons": []
+}

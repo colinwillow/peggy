@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.DS_Store
+*.log
+.cache/
+scratchpad/
+
+# Source art — keep the exported .glb, not the working files
+*.c4d
+*.blend
+*.blend1
+*.zpr
+*.ztl

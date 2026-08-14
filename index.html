@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- viewport-fit=cover + the safe-area insets in the CSS is what keeps the
+     sticks clear of the home indicator and the notch on a real phone. -->
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0e2740">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Peggy</title>
+<link rel="manifest" href="manifest.webmanifest">
+<!-- inline, so there is no favicon round-trip and no 404 in the console -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%E2%98%A0%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<canvas id="game"></canvas>
+
+<!-- ── TOUCH CONTROLS ──────────────────────────────────────────────────────
+     Two invisible half-screen zones. The visible ring and knob are moved to
+     wherever the thumb lands, so there is nothing to aim for and nothing to
+     look at. The buttons sit above the sticks, out of thumb-sweep range. -->
+<div id="zone-left" class="stick-zone"></div>
+<div id="zone-right" class="stick-zone"></div>
+<div id="ring-left" class="stick-ring left"></div>
+<div id="knob-left" class="stick-knob left"></div>
+<div id="ring-right" class="stick-ring right"></div>
+<div id="knob-right" class="stick-knob right"></div>
+
+<div id="reticle"></div>
+
+<!-- ── HUD ─────────────────────────────────────────────────────────────── -->
+<div id="hud">
+  <div id="hud-left">
+    <span id="hud-state">—</span>
+    <span id="hud-speed">0.0 m/s</span>
+    <span id="hud-fps">— fps</span>
+  </div>
+  <div id="hud-hint"></div>
+</div>
+
+<div id="controls-legend">
+  <div class="legend-touch">
+    <b>LEFT</b> drag to move · tap to jump · flick down to dive<br>
+    <b>RIGHT</b> drag to look · tap to throw the hook
+  </div>
+  <div class="legend-kbm">
+    <b>WASD</b> move · <b>SPACE</b> jump · <b>C</b> dive<br>
+    <b>MOUSE</b> look · <b>CLICK</b> hook
+  </div>
+</div>
+
+<!-- ── BOOT ────────────────────────────────────────────────────────────── -->
+<div id="boot">
+  <div class="boot-inner">
+    <h1>PEGGY</h1>
+    <div class="boot-skull">☠</div>
+    <p>hoisting the colours…</p>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/three.module.js",
+    "three/addons/": "./vendor/three/addons/"
+  }
+}
+</script>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
