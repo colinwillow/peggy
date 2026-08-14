@@ -414,11 +414,13 @@ const out = await page.evaluate(() => {
     setMove(0, 0); step(60);
     const gY = P.position.y;
     press('jump'); step(1); release('jump');
-    step(44);                                   // past the apex, falling
+    step(60);                                   // past the apex, falling
     const vyBefore = P.velocity.y;
     press('jump'); step(1); release('jump');    // the double
     const vyDouble = P.velocity.y;
-    step(10);
+    // Let the double's speed decay well below the assertion threshold, so a
+    // (correctly) blocked third press reads as "unchanged", not "fresh jump".
+    step(30);
     press('jump'); step(1); release('jump');    // a third must do nothing
     const vyThird = P.velocity.y;
     let peak = P.position.y, guard = 0;
@@ -534,9 +536,9 @@ const checks = [
   ['top speed 6.5 m/s',            out.topSpeed, 6.3, 6.7],
   ['reaches top speed by 2s',      out.accel.find((a) => a.t === 2).speed, 6.0, 6.7],
   ['starts at a jog, not a crawl', out.accel[0].speed, 0.9, 2.2],
-  ['jump height ~1.6m',            out.jumpHeight, 1.45, 1.75],
-  ['jump airtime ~0.67s',          out.jumpAirtime, 0.55, 0.80],
-  ['running jump clears 4.2m gap', out.runJumpDistance, 4.25, 5.2],
+  ['jump height ~2.25m',           out.jumpHeight, 2.05, 2.45],
+  ['jump airtime ~0.79s',          out.jumpAirtime, 0.68, 0.92],
+  ['running jump clears 4.2m gap', out.runJumpDistance, 4.25, 5.55],
   ['stops within 2m',              out.stopDistance, 0.8, 2.2],
   ['dives at least 6m down',       out.diveDepth, 6, 40],
   ['floats without drifting',      out.floatDrift, 0, 0.05],

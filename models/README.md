@@ -53,13 +53,23 @@ beat it in the candidate order). Notes from wiring it, useful for the next
 export:
 
 - **No material in the file** — the texture lives at `images/glorp_texture.webp`
-  and is bound by hand in `createPeggyModel` (`flipY = false`, sRGB). Baking it
+  and is bound by hand in `createPeggyModel` (`flipY = false`). Baking it
   into the GLB would let all of that disappear.
-- **Normals arrive inverted** (C4D's scaled Z-up root flips them); the loader
-  negates them (`fixNormals: true`) and renders two-sided. An export with
-  Y-up / normalized scale would not need either.
-- **Scale/orientation are auto-normalised** at load: the bind pose is measured
-  and sized to 1.5m with feet at y=0, so the export's units don't matter.
+- **The texture stores LINEAR pixel values** — an sRGB→linear conversion got
+  baked in somewhere in the export chain, so read normally it averages 7/255
+  and the model renders as a black silhouette. The loader tags it
+  `LinearSRGBColorSpace` so the renderer's output encode undoes the baked
+  conversion and the painted colours come back. (An earlier note here blamed
+  inverted normals for the black render — that was wrong. The normals are
+  fine; "fixing" them just made the rim light glaze the whole body tan.
+  If the next export bakes the texture into the GLB, the exporter will tag
+  the colour space itself and this whole bullet evaporates.)
+- **Scale/orientation are auto-normalised** at load: the loader poses the
+  skeleton in idle frame 0, measures the SKINNED vertices, and sizes that to
+  1.5m with feet at y=0 and the yaw axis through the middle. (Measuring the
+  raw bind-space geometry — the first attempt — shipped him 2.8m tall,
+  floating 1.1m up, spinning about an axis in front of his belly: bind space
+  and render space genuinely disagree on this export.)
 - **Takes map as**: idle, walk, run, running_jump -> jump, in_air -> fall,
   landing -> land. The `.001` duplicates, `tpose` and `CINEMA_4D_Main` are
   ignored. `left_strafe` / `right_strafe` / `run_backward` load but are unused

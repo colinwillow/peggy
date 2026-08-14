@@ -18,7 +18,7 @@
 
 import * as THREE from '../../vendor/three/three.module.js';
 import { GLTFLoader } from '../../vendor/three/addons/loaders/GLTFLoader.js';
-import { toonMaterial, addOutline } from '../render/toon.js';
+import { toonMaterial, addOutline, makeGradientMap } from '../render/toon.js';
 import { clamp, clamp01, damp, lerp, smoothstep, TAU } from '../core/math.js';
 
 // Sampled off the character sheet.
@@ -557,6 +557,34 @@ export class ProxyPeggyModel {
 
 // ── the real thing, when it exists ─────────────────────────────────────────
 
+let _charGradient = null;
+function characterGradient() {
+  if (!_charGradient) _charGradient = makeGradientMap([0.35, 0.62, 1.0], [0.74, 0.9, 1.0]);
+  return _charGradient;
+}
+
+/**
+ * The bounding box of the model as RENDERED: bone transforms applied, in the
+ * root's space. `getVertexPosition` runs the skinning on the CPU per vertex,
+ * so sample rather than visiting every one — a bounds needs ~thousands of
+ * points, not a million.
+ */
+function measureSkinnedBounds(root) {
+  root.updateMatrixWorld(true);
+  const box = new THREE.Box3();
+  const v = new THREE.Vector3();
+  root.traverse((o) => {
+    if (!o.isMesh && !o.isSkinnedMesh) return;
+    const pos = o.geometry.attributes.position;
+    const step = Math.max(1, Math.floor(pos.count / 5000));
+    for (let i = 0; i < pos.count; i += step) {
+      o.getVertexPosition(i, v).applyMatrix4(o.matrixWorld);
+      box.expandByPoint(v);
+    }
+  });
+  return box;
+}
+
 export class RiggedPeggyModel {
   /**
    * @param {object} opts
@@ -576,42 +604,20 @@ export class RiggedPeggyModel {
       // Scaled skinned meshes routinely fail three's frustum test and vanish
       // at certain camera angles; the character is always on screen anyway.
       o.frustumCulled = false;
-      // This export's normals point INWARD (C4D's scaled Z-up root flips
-      // them), which makes every light contribution negative — the model
-      // rendered as a black silhouette from all directions. Verified by A/B:
-      // DoubleSide alone stayed black; negating the normals lit it.
-      if (opts.fixNormals) {
-        const n = o.geometry.attributes.normal;
-        if (n) {
-          for (let i = 0; i < n.count * 3; i++) n.array[i] *= -1;
-          n.needsUpdate = true;
-        }
-      }
       const src = o.material;
       o.material = toonMaterial({
         color: src && src.color ? src.color.getHex() : 0xffffff,
         map: opts.map || (src && src.map) || null,
-        // winding is also suspect on this export; two-sided costs little on
-        // one character and removes the failure mode entirely
-        side: opts.fixNormals ? THREE.DoubleSide : THREE.FrontSide,
+        // A painterly albedo carries its own lighting cues. The additive warm
+        // rim that flatters flat-colour props smears a tan glaze over it —
+        // keep only a whisper, for silhouette pop against the sky.
+        rimStrength: 0.18,
+        // A raised shade floor, for the same reason: the albedo is already
+        // dark where it should be dark, and the camera lives BEHIND her — on
+        // the standard bands the unlit back crushed to a black cutout.
+        gradientMap: characterGradient(),
       });
     });
-
-    // ── auto-normalise ────────────────────────────────────────────────────
-    // DCC exports arrive at arbitrary scales (this one: a 0.01 root from
-    // C4D's cm world, Z-up rotation baked into the root). Rather than trust
-    // any of it, measure the bind pose and size it to the controller's
-    // capsule: feet at y=0, head at `height`.
-    const target = opts.height ?? 1.5;
-    const box = new THREE.Box3().setFromObject(this.scene);
-    const size = box.getSize(new THREE.Vector3());
-    if (size.y > 1e-5) this.scene.scale.multiplyScalar(target / size.y);
-    const box2 = new THREE.Box3().setFromObject(this.scene);
-    const centre = box2.getCenter(new THREE.Vector3());
-    this.scene.position.x -= centre.x;
-    this.scene.position.z -= centre.z;
-    this.scene.position.y -= box2.min.y;
-    if (opts.rotateY) this.scene.rotation.y = opts.rotateY;
 
     // ── clips ─────────────────────────────────────────────────────────────
     this.mixer = new THREE.AnimationMixer(this.scene);
@@ -635,6 +641,35 @@ export class RiggedPeggyModel {
     }
     this.current = null;
     this._landT = 0;
+
+    // ── auto-normalise ────────────────────────────────────────────────────
+    // DCC exports arrive at arbitrary scales (this one: a 0.01 root from
+    // C4D's cm world, Z-up rotation baked into the root). Rather than trust
+    // any of it, measure the model and size it to the controller's capsule:
+    // feet at y=0, head at `height`, yaw axis through the middle.
+    //
+    // The measurement MUST be of the POSED, SKINNED vertices — not the raw
+    // geometry bounds. Skinned geometry lives in bind space, which on this
+    // export bears no resemblance to what the skeleton actually renders:
+    // measuring it shipped him 2.8m tall, floating 1.1m off the ground, and
+    // yawing about an axis 0.2m in front of his belly. So: pose the skeleton
+    // in idle frame 0, run the bones, and measure where the skin really is.
+    if (this.actions.idle) {
+      this.actions.idle.setEffectiveWeight(1);
+      this.mixer.update(0);
+    }
+    const target = opts.height ?? 1.5;
+    let box = measureSkinnedBounds(this.root);
+    const size = box.getSize(new THREE.Vector3());
+    if (size.y > 1e-5) this.scene.scale.multiplyScalar(target / size.y);
+    // Re-measure after scaling rather than doing the algebra — immune to any
+    // pre-existing translation on the export's root.
+    box = measureSkinnedBounds(this.root);
+    const centre = box.getCenter(new THREE.Vector3());
+    this.scene.position.x -= centre.x;
+    this.scene.position.z -= centre.z;
+    this.scene.position.y -= box.min.y;
+    if (opts.rotateY) this.scene.rotation.y = opts.rotateY;
   }
 
   _play(key, fadeHL, dt) {
@@ -694,8 +729,12 @@ export async function createPeggyModel() {
   const candidates = [
     { url: 'models/peggy.glb' },
     // Interim rigged character. Exported without any material, so the texture
-    // rides alongside and is bound here by hand.
-    { url: 'models/glorp_character.glb', texture: 'images/glorp_texture.webp', fixNormals: true },
+    // rides alongside and is bound here by hand. The file stores LINEAR pixel
+    // values (an sRGB->linear conversion got baked in on export): read as
+    // ordinary sRGB it averages 7/255 and the whole model renders near-black.
+    // Tagging it linear lets the output encode undo the baked conversion and
+    // the painted colours come back. Verified against an unlit A/B render.
+    { url: 'models/glorp_character.glb', texture: 'images/glorp_texture.webp', texLinear: true },
   ];
 
   const loader = new GLTFLoader();
@@ -708,14 +747,14 @@ export async function createPeggyModel() {
           map = await new THREE.TextureLoader().loadAsync(c.texture);
           // glTF UV convention: v runs top-down, so the texture must not flip.
           map.flipY = false;
-          map.colorSpace = THREE.SRGBColorSpace;
+          map.colorSpace = c.texLinear ? THREE.LinearSRGBColorSpace : THREE.SRGBColorSpace;
         } catch {
           console.warn('[peggy] texture missing:', c.texture);
         }
       }
       console.info('[peggy] rigged model:', c.url,
         '· clips:', gltf.animations.map((a) => a.name).join(', ') || '(none)');
-      return new RiggedPeggyModel(gltf, { map, height: 1.5, fixNormals: c.fixNormals });
+      return new RiggedPeggyModel(gltf, { map, height: 1.5 });
     } catch { /* try the next candidate */ }
   }
   console.info('[peggy] no rigged model found — using the procedural proxy.');

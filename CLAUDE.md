@@ -42,7 +42,7 @@ wrong — don't paper over it in the input layer.
 
 ## Conventions
 
-- **Metres and seconds.** She's 1.55 m, runs 6.5 m/s, jumps 1.6 m. Sea level is
+- **Metres and seconds.** She's 1.55 m, runs 6.5 m/s, jumps 2.3 m. Sea level is
   `y = 0` everywhere.
 - **No build step.** Native ES modules, vendored three.js. `index.html` opens
   and runs. Don't introduce a bundler without asking.

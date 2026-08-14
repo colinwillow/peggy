@@ -52,7 +52,7 @@ const TUNING = {
   gravity: 24.0,
   fallGravity: 36.0,      // heavier on the way down => snappy, non-floaty arc
   maxFall: 32.0,
-  jumpSpeed: 8.6,
+  jumpSpeed: 10.4,        // ~2.25m apex — she's a platformer lead, let her fly
   coyoteTime: 0.12,       // grace after walking off a ledge
   jumpBuffer: 0.14,       // grace for pressing jump just before landing
   stepHeight: 0.52,       // ledges under this are stepped onto, not blocked
@@ -75,7 +75,7 @@ const TUNING = {
 
   // ── air jumps ───────────────────────────────────────────────────────────
   airJumps: 1,            // how many extra jumps she gets after leaving the ground
-  airJumpSpeed: 8.2,      // slightly under the ground jump, so the first is king
+  airJumpSpeed: 9.6,      // slightly under the ground jump, so the first is king
 
   // ── melee: a three-hit combo ────────────────────────────────────────────
   // Flick, flick, flick: forehand, backhand, then a full spin. Each stage is
@@ -400,7 +400,9 @@ export class Peggy {
     // A jump out of the water, for climbing onto a low ledge or a boat.
     if (buttons.jump.pressed) {
       this.state = State.AIR;
-      this.velocity.y = T.jumpSpeed * 0.78;
+      // Scaled to the OLD hop, not the new tall jump — breaching out of the
+      // water is about clambering onto a ledge, not launching into orbit.
+      this.velocity.y = T.jumpSpeed * 0.64;
       this._waterLock = 0.30;
       this.emit('breach', {});
     }

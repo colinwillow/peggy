@@ -197,7 +197,7 @@ tests/
 ### Two things worth knowing before editing
 
 **Units are metres and seconds.** Peggy is 1.55 m tall, runs at 6.5 m/s, jumps
-1.6 m. Sea level is `y = 0` everywhere.
+2.3 m. Sea level is `y = 0` everywhere.
 
 **Smoothing is frame-rate independent.** Use `damp(current, target, halfLife,
 dt)`, never a constant per-frame lerp factor — those judder as soon as frame
@@ -213,7 +213,7 @@ exercises one thing, and `npm test` asserts against them:
 - **the beach** — wading in and out, the swim↔walk handover
 - **the stair crates** — rises of 0.35 / 0.50 / 0.70 m against a 0.52 m step
   height, so the first two are walkable and the third must be jumped
-- **the gap** — 3.4 m (comfortable) and 4.2 m (tight) against a 4.44 m running
+- **the gap** — 3.4 m (comfortable) and 4.2 m (tight) against a ~5.4 m running
   jump; neither clearable from a standstill
 - **the mast** — swing anchors at three heights, crow's nest reachable only by
   swinging
