@@ -9,10 +9,19 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Peggy">
 <title>Peggy</title>
 <link rel="manifest" href="manifest.webmanifest">
-<!-- inline, so there is no favicon round-trip and no 404 in the console -->
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%E2%98%A0%3C/text%3E%3C/svg%3E">
+<!-- The home-screen icon. iOS reads apple-touch-icon, NOT the manifest, and it
+     masks the corners itself — so these are full-bleed art with no baked-in
+     rounding (baked corners would show as black inside Apple's mask).
+     Regenerate every size from icons/icon-source-1254.png if the art changes. -->
+<link rel="apple-touch-icon" href="icons/apple-touch-icon-180.png">
+<link rel="apple-touch-icon" sizes="167x167" href="icons/apple-touch-icon-167.png">
+<link rel="apple-touch-icon" sizes="152x152" href="icons/apple-touch-icon-152.png">
+<link rel="apple-touch-icon" sizes="120x120" href="icons/apple-touch-icon-120.png">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16.png">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
