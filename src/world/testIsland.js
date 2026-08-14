@@ -93,11 +93,14 @@ export function buildTestIsland(scene) {
   /** A visible ring where the hook can latch, so anchors are readable. */
   function anchor(x, y, z, kind = 'swing') {
     level.addGrapplePoint(new THREE.Vector3(x, y, z), { kind });
+    const gp = level.grapplePoints[level.grapplePoints.length - 1];
     const ring = new THREE.Mesh(new THREE.TorusGeometry(0.30, 0.055, 8, 16), goldMat);
     ring.position.set(x, y, z);
     ring.rotation.x = Math.PI / 2;
     ring.castShadow = true;
     ring.userData.spin = kind === 'swing' ? 1.1 : 0.5;
+    ring.userData.baseScale = 1;
+    gp.ring = ring;          // so the HUD can highlight whatever is targetable
     props.add(ring);
     return ring;
   }

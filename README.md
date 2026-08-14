@@ -66,12 +66,23 @@ by deflection over time:
 | **push** | out and sustained | steer the camera |
 
 Tap and hold are the same motion split by *duration*; flick and push are the
-same motion split by *speed*. Both splits hold up because a human doing one
-isn't near the threshold of the other.
+same motion split by **speed** — radial deflection per second, not "got far
+within a time window". The window version fired melee on ordinary camera drags,
+because a deliberate drag crosses the same distance easily inside it. A real
+flick runs 10-15 units/sec; a drag runs 2-4. The threshold sits in the gap.
 
-The obvious objection — a flick is also a camera drag — is handled by muting
-that stick's camera contribution for 260 ms after a flick fires, so a swipe
-doesn't whip the view. Verified: a flick moves the camera by exactly 0.
+The hold zone and the camera's deadzone are **the same number**. Anywhere your
+thumb can rest and still count as a hold is guaranteed not to have nudged the
+camera, so the two can never half-fire each other. It's set generously — a thumb
+resting on glass wanders more than you'd think, and a tighter zone meant the
+hook simply never fired.
+
+The camera also doesn't start turning until the thumb has been out for ~95 ms.
+Muting after a flick fires isn't enough on its own: the wind-up frames leaked
+about 11° of yaw into every melee. A flick is over before the window elapses,
+so it now contributes nothing.
+
+`tests/gestures.mjs` pins all of this with real touch events at human speeds.
 
 **The camera's tilt is fixed.** You rotate around her, you never pitch. Giving
 up that axis is what leaves room for the gestures above; guns and interact will

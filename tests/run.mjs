@@ -43,10 +43,13 @@ try {
   console.log(`\n▸ locomotion (deterministic controller checks)`);
   const a = await run(new URL('./locomotion.mjs', import.meta.url).pathname, [BASE]);
 
+  console.log(`▸ gestures (touch-event separation on the right stick)`);
+  const g = await run(new URL('./gestures.mjs', import.meta.url).pathname, [BASE]);
+
   console.log(`▸ smoke (boots, renders, screenshots to /tmp/peggy-shots)`);
   const b = await run(new URL('./smoke.mjs', import.meta.url).pathname, [BASE, '/tmp/peggy-shots']);
 
-  exitCode = a || b;
+  exitCode = a || g || b;
 } finally {
   server.kill();
 }

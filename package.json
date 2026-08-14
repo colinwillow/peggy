@@ -8,7 +8,8 @@
     "start": "python3 -m http.server 8123",
     "test": "node tests/run.mjs",
     "test:locomotion": "node tests/locomotion.mjs",
-    "test:smoke": "node tests/smoke.mjs"
+    "test:smoke": "node tests/smoke.mjs",
+    "test:gestures": "node tests/gestures.mjs"
   },
   "devDependencies": {
     "playwright": "^1.47.0"

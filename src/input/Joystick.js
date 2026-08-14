@@ -40,15 +40,35 @@ const TAP_MAX_PUSH = 0.4;    // and it must never have deflected past this
 // TAP and HOLD are the same motion separated only by duration; FLICK and PUSH
 // are the same motion separated only by speed. Both splits are reliable because
 // a human doing one is not close to the threshold of the other.
-const HOLD_MIN_MS = 240;     // past a tap, and it must have stayed near centre
-const HOLD_MAX_PUSH = 0.30;  // push further than this and it's a camera drag
-// Loosened after playtest — a real thumb flicks slower and shorter than a
-// synthetic one, and a melee that needs a perfect gesture reads as broken.
-const FLICK_MAG = 0.60;      // how far out counts as a flick
-const FLICK_MS = 230;        // ...and how fast it had to get there
+const HOLD_MIN_MS = 220;     // past a tap, and it must have stayed near centre
+// Generous on purpose. A thumb resting on glass for half a second wanders more
+// than you'd think, and at 0.30 (19px of a 64px stick) ordinary wobble was
+// disqualifying the hold — so the hook simply never fired. This same value is
+// the camera's deadzone, so anywhere inside it is guaranteed camera-neutral.
+const HOLD_MAX_PUSH = 0.38;
+// A flick is defined by SPEED, not by "got far within a time window".
+//
+// The window version fired on ordinary camera drags: it started its clock the
+// moment the thumb passed 30% deflection, and getting from 30% to 60% inside
+// 230ms is something a deliberate drag does easily. Push and flick became the
+// same gesture.
+//
+// Radial speed separates them cleanly. A real flick covers most of the stick in
+// 60-90ms, so ~10-15 units/sec. A deliberate camera drag is 2-4 units/sec. The
+// threshold sits in the empty middle.
+const FLICK_MAG = 0.55;      // how far out it must get
+const FLICK_SPEED = 6.0;     // deflection units per second — the real test
 const FLICK_RESET = 0.30;    // fall back inside this to re-arm the next flick
+const FLICK_SNAP_MS = 260;   // a flick faster than the sample rate: caught on release
 const FLICK_MUTE_MS = 260;   // camera ignores this stick briefly after a flick,
                              // so a melee swipe doesn't also whip the view
+// ...and the camera does not START turning until the thumb has been pushed out
+// for this long. Muting AFTER a flick fires is not enough on its own: the
+// wind-up frames — thumb already past the deadzone, not yet fast enough to be
+// recognised — leaked about 11 degrees of yaw into every melee. A flick is over
+// long before this window elapses, so it now contributes exactly nothing, while
+// a real drag pays a delay of five frames that the camera's own smoothing hides.
+const CAM_SETTLE_MS = 95;
 
 export class Joystick {
   /**
@@ -83,9 +103,14 @@ export class Joystick {
 
     /** 0..1 while a hold is charging, for UI. Zero at every other moment. */
     this.holdCharge = 0;
+    /** Last gesture recognised, for the on-screen readout: tap|hold|flick|drag */
+    this.lastGesture = '';
     this._flicked = false;
-    this._lowSince = 0;
     this._muteUntil = 0;
+    this._lastFrac = 0;
+    this._lastMoveT = 0;
+    this._radialSpeed = 0;
+    this._outSince = 0;
 
     this._tapStart = 0;
     this._tapTravelled = false;
@@ -116,6 +141,16 @@ export class Joystick {
    * reason a flick and a camera drag can share one thumb.
    */
   get muted() { return performance.now() < this._muteUntil; }
+  /**
+   * True once the thumb has been held out past the deadzone long enough that
+   * this is definitely a drag and not the wind-up of a flick. The camera gates
+   * on this; see CAM_SETTLE_MS.
+   */
+  get steadyOut() {
+    return this._outSince !== 0 && performance.now() - this._outSince >= CAM_SETTLE_MS;
+  }
+  /** The deflection past which the camera responds — matches the hold zone. */
+  static get camDeadzone() { return HOLD_MAX_PUSH; }
   /** True while the touch that began this hold started on the knob itself. */
   get centreHeld() { return this.touchId !== null && this._pressedCentre; }
 
@@ -157,7 +192,10 @@ export class Joystick {
 
     this.touchId = t.identifier;
     this._tapStart = performance.now();
-    this._lowSince = this._tapStart;
+    this._lastMoveT = this._tapStart;
+    this._lastFrac = 0;
+    this._radialSpeed = 0;
+    this._outSince = 0;
     this._tapTravelled = false;
     this._tapPeak = 0;
     this._flicked = false;
@@ -193,6 +231,11 @@ export class Joystick {
       // to start slowly.
       const wasHold = !this._flicked && !wasTap
         && held >= HOLD_MIN_MS && this._tapPeak < HOLD_MAX_PUSH;
+      // A flick can be over before two touchmoves have landed, especially on a
+      // slow frame — the speed test never gets a chance to see it. Catch that
+      // on release: far out, and gone almost immediately.
+      const wasSnapFlick = !this._flicked && !wasTap && !wasHold
+        && this._tapPeak >= FLICK_MAG && held < FLICK_SNAP_MS;
 
       this.touchId = null;
       this._pressedCentre = false;
@@ -210,9 +253,12 @@ export class Joystick {
       }
 
       this.holdCharge = 0;
+      this.lastGesture = wasTap ? 'tap' : wasHold ? 'hold'
+        : (this._flicked || wasSnapFlick) ? 'flick' : 'drag';
       if (this.onRelease) this.onRelease();
       if (wasTap && this.onTap) this.onTap();
       else if (wasHold && this.onHoldRelease) this.onHoldRelease();
+      else if (wasSnapFlick) this._fireFlick();
       break;
     }
   }
@@ -250,26 +296,40 @@ export class Joystick {
    */
   _gesture(frac) {
     const now = performance.now();
+    const dt = Math.max((now - this._lastMoveT) / 1000, 1 / 500);
+    const inst = (frac - this._lastFrac) / dt;
+    // Smoothed, so one jittery sample between two touchmoves can't fire a melee.
+    this._radialSpeed = this._radialSpeed * 0.5 + inst * 0.5;
+    this._lastFrac = frac;
+    this._lastMoveT = now;
 
     // Re-arm whenever the thumb comes back near the middle, so you can flick
     // repeatedly without lifting — which is how melee has to feel.
-    if (frac < FLICK_RESET) { this._lowSince = now; this._flicked = false; }
+    if (frac < FLICK_RESET) this._flicked = false;
 
-    if (!this._flicked && frac >= FLICK_MAG && (now - this._lowSince) <= FLICK_MS) {
-      this._flicked = true;
-      this._muteUntil = now + FLICK_MUTE_MS;
-      this.holdCharge = 0;
-      if (this.onFlick) this.onFlick(this.angle);
+    // Track how long it has been continuously out past the camera's deadzone.
+    if (frac >= HOLD_MAX_PUSH) { if (!this._outSince) this._outSince = now; }
+    else this._outSince = 0;
+
+    if (!this._flicked && frac >= FLICK_MAG && this._radialSpeed >= FLICK_SPEED) {
+      this._fireFlick();
       return;
     }
 
-    // Charge only while the thumb stays put. Pushing out cancels it — that
-    // gesture belongs to the camera now.
-    if (!this._flicked && this._tapPeak < HOLD_MAX_PUSH) {
-      this.holdCharge = clamp01((now - this._tapStart - TAP_MAX_MS) / 380);
-    } else {
-      this.holdCharge = 0;
-    }
+    // Charge only while the thumb stays inside the hold zone. Pushing out
+    // cancels it — that deflection belongs to the camera now.
+    this.holdCharge = (!this._flicked && frac < HOLD_MAX_PUSH)
+      ? clamp01((now - this._tapStart - TAP_MAX_MS) / 380)
+      : 0;
+  }
+
+  _fireFlick() {
+    this._flicked = true;
+    this._muteUntil = performance.now() + FLICK_MUTE_MS;
+    this._outSince = 0;         // a flick can never count as a settled drag
+    this.holdCharge = 0;
+    this.lastGesture = 'flick';
+    if (this.onFlick) this.onFlick(this.angle);
   }
 
   _showAt(x, y, opacity) {

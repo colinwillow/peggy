@@ -151,6 +151,7 @@ async function boot() {
     state: document.getElementById('hud-state'),
     speed: document.getElementById('hud-speed'),
     fps: document.getElementById('hud-fps'),
+    gesture: document.getElementById('hud-gesture'),
     hint: document.getElementById('hud-hint'),
     reticle: document.getElementById('reticle'),
     prompt: document.getElementById('prompt'),
@@ -159,6 +160,7 @@ async function boot() {
   };
   let promptTarget = null;
   let promptIconKey = '';
+  let hookTarget = null;
   document.body.classList.toggle('touch', input.isTouch);
 
   // ── frame state ──────────────────────────────────────────────────────────
@@ -277,9 +279,13 @@ async function boot() {
     scene.fog.density = lerp(0.0032, 0.048, fogT);
     renderer.toneMappingExposure = lerp(1.05, 0.78, fogT);
 
-    // spin the anchor rings so they read as interactive
+    // spin the anchor rings so they read as interactive, and swell whichever
+    // one the hook is currently locked onto
     for (const c of props.children) {
-      if (c.userData.spin) c.rotation.z += c.userData.spin * dt;
+      if (!c.userData.spin) continue;
+      c.rotation.z += c.userData.spin * (c.userData.targeted ? 2.6 : 1) * dt;
+      const want = c.userData.targeted ? 1.75 : 1;
+      c.scale.setScalar(damp(c.scale.x, want, 0.09, dt));
     }
 
     // ── hud ────────────────────────────────────────────────────────────────
@@ -302,8 +308,23 @@ async function boot() {
       // the hook is being charged — so a hold reads as "something is happening"
       // instead of as a dropped input.
       const aim = hook.aimDirection(_v);
-      const target = level.findGrapplePoint(hook.handPosition(_v2), aim, 17, 0.35);
+      const target = level.findGrapplePoint(hook.handPosition(_v2), aim, 17, 0.28);
       hud.reticle.classList.toggle('locked', !!target);
+
+      // Light up the anchor she'd actually hook. Without this there is no way
+      // to tell a throw that had no target from a throw that didn't fire —
+      // both look like nothing happening.
+      if (target !== hookTarget) {
+        if (hookTarget && hookTarget.ring) hookTarget.ring.userData.targeted = false;
+        if (target && target.ring) target.ring.userData.targeted = true;
+        hookTarget = target;
+      }
+
+      // Live gesture readout, so a mis-detected gesture can be reported
+      // precisely instead of described.
+      const g = input.stickR.lastGesture;
+      if (g) hud.gesture.textContent = g.toUpperCase();
+      hud.gesture.classList.toggle('lit', !!g);
       hud.reticle.classList.toggle('charging', input.hookCharge > 0.02);
       hud.reticle.style.setProperty('--charge', input.hookCharge.toFixed(2));
 

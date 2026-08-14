@@ -37,6 +37,9 @@
 import { Joystick } from './Joystick.js';
 import { clamp } from '../core/math.js';
 
+/** Must equal HOLD_MAX_PUSH in Joystick.js — see the comment at its use site. */
+const CAM_DEADZONE = 0.38;
+
 class Button {
   constructor() { this.down = false; this.pressed = false; this.released = false; this._prev = false; }
   set(v) { this.down = !!v; }
@@ -164,11 +167,20 @@ export class Input {
       mx += this.stickL.x; my += -this.stickL.y;
       if (this.stickL.mag > 0.05) this.lastSource = 'touch';
     }
-    if (this.stickR.held && !this.stickR.muted) {
+    if (this.stickR.held && !this.stickR.muted && this.stickR.steadyOut) {
       // x only — the vertical axis is deliberately dropped, not merely unused.
       // And muted right after a flick, so a melee swipe doesn't whip the view.
-      lx += this.stickR.x;
-      if (this.stickR.mag > 0.05) this.lastSource = 'touch';
+      //
+      // The deadzone MATCHES the hold zone exactly. That is what makes holding
+      // for the hook safe: anywhere your thumb can rest and still count as a
+      // hold is guaranteed not to have nudged the camera, so the two gestures
+      // can never half-fire each other.
+      const m = this.stickR.mag;
+      if (m > CAM_DEADZONE) {
+        const k = (m - CAM_DEADZONE) / (1 - CAM_DEADZONE);
+        lx += (this.stickR.x / m) * k;
+        this.lastSource = 'touch';
+      }
     }
     this.hookCharge = this.stickR.holdCharge;
 
