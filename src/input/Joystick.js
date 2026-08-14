@@ -79,8 +79,7 @@ const FLICK_MUTE_MS = 260;   // camera ignores this stick briefly after a flick
 const CAND_TIMEOUT_MS = 200; // candidate still travelling after this = a pan
 const CAND_REBOUND = 0.12;   // deflection fallback from peak that fires the flick
 const SWIPE_BUFFER_MS = 110; // deltas buffered at touch start, pending a verdict
-const AIM_STILL_MS = 200;    // this long without movement (plus the hold time)
-const STILL_SPEED = 400;     // px/s — thumb speeds below this count as "still"
+const AIM_STILL_MS = 200;    // this long without above-slop movement
 
 export class Joystick {
   /**
@@ -250,10 +249,15 @@ export class Joystick {
       // frame and lose nothing to this.
       const pdx = t.clientX - this._lastPx;
       this._lastPx = t.clientX;
-      if (Math.abs(pdx) >= 1.6) this._pendingDx += pdx;
-      const now2 = performance.now();
-      const edt = Math.max(now2 - this._lastMoveT, 1) / 1000;
-      if (Math.abs(pdx) / edt > STILL_SPEED) this._stillSince = now2;
+      // Stillness is judged by distance-per-EVENT, never px/second: browsers
+      // coalesce touchmoves, so a moving thumb always produces above-slop
+      // deltas no matter how janky the frame timing — whereas dividing by a
+      // stretched dt made a real pan measure as "slow", the stillness clock
+      // never reset, and the aim engaged in the middle of camera movement.
+      if (Math.abs(pdx) >= 1.6) {
+        this._pendingDx += pdx;
+        this._stillSince = performance.now();
+      }
       const frac = travel / this.radius;
       if (frac > this._tapPeak) this._tapPeak = frac;
       this._apply(t.clientX, t.clientY);
@@ -272,12 +276,26 @@ export class Joystick {
       // A hold is the same motion as a tap, just sustained — and crucially it
       // must never have been pushed out, or it was a camera drag that happened
       // to start slowly.
-      const wasHold = this.aimActive && !this._flickedThisTouch;
+      // Evaluated from the raw conditions at RELEASE, not from the aimActive
+      // flag alone — the flag is set by poll(), poll rides rAF, and one long
+      // frame across the rest window meant the hold was never marked and the
+      // release fell through to "drag". Symmetric with the candidate timeout
+      // below: anything that changes what a release MEANS gets re-derived at
+      // the release itself.
+      const now = performance.now();
+      const wasHold = !this._flickedThisTouch && (
+        this.aimActive
+        || (held >= HOLD_MIN_MS && now - this._stillSince >= AIM_STILL_MS
+            && !(this._cand && now - this._cand.t <= CAND_TIMEOUT_MS))
+      );
       // A candidate that ends in a release IS a flick — snapped out and let go
-      // before the pan timeout. This is the common case for a thumb that flicks
-      // and lifts in one motion.
+      // before the pan timeout. The timeout is re-checked HERE, not just in
+      // poll(): poll rides requestAnimationFrame, and one janky frame is enough
+      // for a stale candidate to survive to the release and fire a melee at
+      // the end of a pan. Release-time checks cannot be starved.
       const wasSnapFlick = !this._flickedThisTouch && !wasTap && !wasHold
-        && this._cand !== null;
+        && this._cand !== null
+        && now - this._cand.t <= CAND_TIMEOUT_MS;
 
       this.touchId = null;
       this._pressedCentre = false;
