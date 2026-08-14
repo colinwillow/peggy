@@ -368,6 +368,46 @@ const out = await page.evaluate(() => {
     chest.used = false;
   }
 
+  // ── hook from the GROUND, at the mast ───────────────────────────────────
+  // The case that was broken in play: standing on the island, facing the mast,
+  // hold-release. It failed three ways at once — the aim pointed down so the
+  // anchors fell outside the cone; the rope was long enough that the bottom of
+  // the arc was underground; and the ground check bailed out on the very first
+  // physics step because she was still stood on it.
+  {
+    P.teleport(-4, L.terrainHeight(-4, 24) + 0.4, 24);
+    P.facing = Math.PI;
+    F.targetYaw = F.yaw = P.facing + Math.PI;
+    setMove(0, 0); step(90);
+    F.update(1 / 120, P, { x: 0, y: 0, mag: 0 });
+
+    const hand = H.handPosition(new THREE.Vector3());
+    const aim = H.aimDirection(new THREE.Vector3());
+    const found = L.findGrapplePoint(hand, aim, 17, 0.28);
+    const groundY = P.position.y;
+
+    press('hook'); step(1); release('hook');
+    for (let i = 0; i < 200 && H.state === 'flying'; i++) step(1);
+    const latched = H.state;
+
+    const ys = [];
+    for (let i = 0; i < 24; i++) { step(10); ys.push(P.position.y); }
+
+    r.groundHook = {
+      aimIsFlat: Math.abs(aim.y) < 0.01,
+      foundAnchor: !!found,
+      anchorAbove: found ? found.pos.y > hand.y + 3 : false,
+      latched,
+      stillSwinging: H.state === 'swinging',
+      gained: +(Math.max(...ys) - groundY).toFixed(2),
+      // a real pendulum goes up AND back down, it doesn't just rise
+      oscillates: Math.max(...ys) - Math.min(...ys) > 1.0,
+      ropeClearsGround: H.ropeLength < (found ? found.pos.y - groundY : 0),
+    };
+    press('hook'); step(3); release('hook');
+    r.groundHook.releasedToAir = P.state === 'air';
+  }
+
   return r;
 });
 
@@ -415,6 +455,15 @@ const bools = [
   ['prompt shows point-blank',          out.interact.onTopOfIt],
   ['used-up prompt stops offering',     !out.interact.afterUse],
   ['three icon kinds in the level',     out.interact.icons.length === 3],
+  ['hook aim is horizontal',            out.groundHook.aimIsFlat],
+  ['finds the mast from the ground',    out.groundHook.foundAnchor],
+  ['...and it is an overhead anchor',   out.groundHook.anchorAbove],
+  ['latches into a SWING, not a whiff', out.groundHook.latched === 'swinging'],
+  ['still swinging 2s later',           out.groundHook.stillSwinging],
+  ['swing lifts her off the ground',    out.groundHook.gained > 2],
+  ['swing actually oscillates',         out.groundHook.oscillates],
+  ['rope shortened to clear ground',    out.groundHook.ropeClearsGround],
+  ['releasing throws her into the air', out.groundHook.releasedToAir],
   ['swing holds the rope',              out.hook.stateLater === 'swinging' && out.hook.ropeLength > 1],
   ['never falls through the world',     out.fellThrough.below === 0],
   ['no console errors',                 errors.filter((e) => !/peggy\.glb|404/.test(e)).length === 0],

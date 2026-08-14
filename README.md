@@ -111,8 +111,18 @@ The player never picks a mode — the world decides, based on what the hook hits
 | nothing | whiff, retract |
 
 On a touchscreen you can't afford a mode selector, so the geometry has to
-disambiguate. Aiming is a generous cone with assist, and the hook re-aims at
-the resolved target once it's chosen.
+disambiguate. The hook re-aims at the resolved target once it's chosen.
+
+**Aiming is horizontal only.** The camera's tilt is fixed, so the player has no
+way to aim up — and every swing anchor is overhead by design. Scoring the full
+3D angle put the mast rigging right on the edge of the cone, so throwing at it
+worked or missed essentially at random. Horizontal heading is the only thing
+the player controls, so it's the only thing that picks the target.
+
+**Latching from the ground yanks her up.** The rope shortens so the bottom of
+the arc clears the terrain, and there's a grace window before the
+ground-collision check applies — without either, a swing started on foot ends
+on the first physics step, before it visibly begins.
 
 ---
 

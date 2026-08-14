@@ -324,17 +324,37 @@ export class Level {
     return moved;
   }
 
-  /** Nearest grapple point within `range` of `from`, in the hemisphere `dir` faces. */
-  findGrapplePoint(from, dir, range, coneDot = 0.35) {
+  /**
+   * Nearest grapple point, scored on HORIZONTAL aim only.
+   *
+   * This has to ignore the vertical, and that is not a shortcut. The camera's
+   * tilt is fixed, so the player has no way to aim upward — and every swing
+   * anchor in the game is deliberately overhead. Scoring the full 3D angle made
+   * the mast rigging sit right on the edge of the cone (measured dot: 0.34,
+   * 0.35, 0.13 against a 0.35 threshold), so throwing at it worked or whiffed
+   * essentially at random. Horizontal heading is the only thing the player can
+   * actually control, so it is the only thing that should decide the target.
+   */
+  findGrapplePoint(from, dir, range, coneDot = 0.28) {
+    let fx = dir.x, fz = dir.z;
+    const fl = Math.hypot(fx, fz);
+    if (fl > 1e-4) { fx /= fl; fz /= fl; }
+
     let best = null, bestScore = Infinity;
     for (const gp of this.grapplePoints) {
       const dx = gp.pos.x - from.x, dy = gp.pos.y - from.y, dz = gp.pos.z - from.z;
       const dist = Math.hypot(dx, dy, dz);
-      if (dist > range || dist < 0.5) continue;
-      const dot = (dx * dir.x + dy * dir.y + dz * dir.z) / dist;
+      if (dist > range || dist < 0.6) continue;
+
+      const dh = Math.hypot(dx, dz);
+      // Near-vertical: there is no heading to face, so stop asking for one.
+      const dot = dh < 1.4 ? 1 : (dx * fx + dz * fz) / dh;
       if (dot < coneDot) continue;
-      // Prefer things you're looking straight at over things that are merely near.
-      const score = dist * (1.6 - dot);
+
+      // Prefer anchors that are usefully placed. A swing point above her head
+      // is worth reaching for; one level with her feet is usually scenery.
+      const lift = clamp01(dy / 5);
+      const score = dist * (1.6 - dot) * (1 - lift * 0.4);
       if (score < bestScore) { bestScore = score; best = gp; }
     }
     return best;

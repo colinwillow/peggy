@@ -19,8 +19,10 @@ import { State } from './Peggy.js';
 
 const HOOK = {
   range: 17.0,
-  flySpeed: 46.0,        // how fast the hook head travels out
-  retractSpeed: 34.0,
+  // Slow enough to SEE. At 46 m/s a 6m whiff was out and back in a third of a
+  // second, which read as "the button did nothing" rather than as a miss.
+  flySpeed: 32.0,
+  retractSpeed: 26.0,
   reelSpeed: 15.0,       // how fast she is pulled to an anchor
   reelArriveDist: 1.5,
   haulSpeed: 13.0,       // how fast an object is pulled to her
@@ -29,8 +31,15 @@ const HOOK = {
   swingReleaseBoost: 1.22,
   minRopeLength: 2.4,
   ropeClimbRate: 3.4,    // push forward on the stick to climb the rope
-  aimAssistCone: 0.35,
-  whiffDistance: 6.0,
+  // Latching from a standstill on the ground: the rope goes taut and YANKS her
+  // up. Without this, a swing started on foot is unplayable — see _latch.
+  swingLaunchUp: 6.0,
+  swingLaunchOut: 3.2,
+  swingGroundClear: 2.2, // keep the bottom of the arc this far above the ground
+  ropeSettleHL: 0.22,
+  swingGrace: 0.30,      // ignore the ground-collision bail-out for this long
+  aimAssistCone: 0.28,
+  whiffDistance: 9.5,    // a miss should travel far enough to look like a throw
 };
 
 export const HookState = {
@@ -76,13 +85,17 @@ export class Hook {
   }
 
   /**
-   * Aim direction: where the camera is looking, flattened toward the horizon a
-   * little so a normal chase-cam angle throws the hook forward rather than into
-   * the ground at her feet.
+   * The heading she's throwing along — horizontal, always.
+   *
+   * The camera's own direction points downward (it sits above her and looks
+   * down at a fixed tilt), so using it raw aims the hook at the sand. And since
+   * target selection ignores the vertical anyway, a flat heading is both the
+   * honest input and the one the player can actually steer.
    */
   aimDirection(out = new THREE.Vector3()) {
     this.camera.getWorldDirection(out);
-    out.y = clamp(out.y + 0.20, -0.85, 0.9);
+    out.y = 0;
+    if (out.lengthSq() < 1e-6) return this.peggy.forward(out);
     return out.normalize();
   }
 
@@ -119,7 +132,13 @@ export class Hook {
     this.targetHaulable = this.target ? null : this._findHaulable(this.head, this._dir);
 
     const goal = this.target ? this.target.pos : this.targetHaulable?.position;
-    if (goal) this._dir.subVectors(goal, this.head).normalize();
+    if (goal) {
+      this._dir.subVectors(goal, this.head).normalize();
+    } else {
+      // A whiff arcs upward, so a miss reads as a thrown hook rather than as
+      // something skittering along the ground.
+      this._dir.set(this._dir.x, 0.42, this._dir.z).normalize();
+    }
   }
 
   _findHaulable(from, dir) {
@@ -178,9 +197,36 @@ export class Hook {
 
     if (wantsSwing) {
       this.state = HookState.SWINGING;
-      this.ropeLength = Math.max(this.peggy.position.distanceTo(this.anchor.pos), HOOK.minRopeLength);
+      const dist = this.peggy.position.distanceTo(this.anchor.pos);
+
+      // How long the rope is ALLOWED to be, so the bottom of the pendulum
+      // clears the ground. Latching a 17m mast while stood beneath it gives a
+      // 10m rope whose lowest point is underground — she'd swing straight into
+      // the island and the ground check would kick her off instantly. Which is
+      // exactly the "hook does nothing" bug this fixes.
+      const below = this.level.groundAt(this.anchor.pos.x, this.anchor.pos.z, Infinity, {}).y;
+      const maxRope = Math.max(HOOK.minRopeLength, this.anchor.pos.y - below - HOOK.swingGroundClear);
+
+      this.ropeLength = dist;                                   // start where she is...
+      this._ropeTarget = clamp(dist, HOOK.minRopeLength, maxRope); // ...and reel in to a usable arc
+      this._swingGrace = HOOK.swingGrace;
+
       this.peggy.state = State.SWING;
       this.peggy.grounded = false;
+      const v = this.peggy.velocity;
+
+      // The yank. Carry whatever momentum she already had — running into a
+      // swing should feel like it continues — and add lift so she actually
+      // leaves the ground instead of scraping along it.
+      this._tmp.subVectors(this.anchor.pos, this.peggy.position);
+      const hl = Math.hypot(this._tmp.x, this._tmp.z) || 1;
+      v.y = Math.max(v.y, 0) + HOOK.swingLaunchUp;
+      if (Math.hypot(v.x, v.z) < 1.5) {
+        v.x += (this._tmp.x / hl) * HOOK.swingLaunchOut;
+        v.z += (this._tmp.z / hl) * HOOK.swingLaunchOut;
+      }
+      this.peggy.position.y += 0.06;
+
       this.peggy.hookOverride = (d, wx, wz, wm) => this._swingPhysics(d, wx, wz, wm);
       this.emit('swingStart', { anchor: this.anchor });
     } else {
@@ -283,15 +329,27 @@ export class Hook {
     const drag = Math.pow(1 - HOOK.swingDamping, dt);
     v.multiplyScalar(drag);
 
+    // Settle the rope toward a length whose arc clears the ground.
+    if (this._ropeTarget != null && Math.abs(this.ropeLength - this._ropeTarget) > 0.02) {
+      this.ropeLength = damp(this.ropeLength, this._ropeTarget, HOOK.ropeSettleHL, dt);
+    }
+
     // Face along the swing.
     if (Math.hypot(v.x, v.z) > 0.4) {
       this.peggy.facing = damp(this.peggy.facing, Math.atan2(v.x, v.z), 0.10, dt);
     }
     this.peggy.speedRatio = clamp01(v.length() / this.peggy.T.runSpeed);
 
-    // Don't swing through the island.
+    // Don't swing through the island — but not for the first instant. She
+    // often latches while stood ON the ground, and gravity puts her below it on
+    // the very first step, which used to drop the swing before it began.
+    this._swingGrace = Math.max(0, (this._swingGrace || 0) - dt);
     const g = this.level.groundAt(p.x, p.z, Infinity, {});
-    if (p.y < g.y) { p.y = g.y; this._release(0); }
+    if (p.y < g.y) {
+      p.y = g.y;
+      if (this._swingGrace <= 0) this._release(0);
+      else if (v.y < 0) v.y = 0;
+    }
   }
 
   _swinging(dt, buttons, move) {

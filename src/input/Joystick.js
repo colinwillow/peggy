@@ -42,8 +42,10 @@ const TAP_MAX_PUSH = 0.4;    // and it must never have deflected past this
 // a human doing one is not close to the threshold of the other.
 const HOLD_MIN_MS = 240;     // past a tap, and it must have stayed near centre
 const HOLD_MAX_PUSH = 0.30;  // push further than this and it's a camera drag
-const FLICK_MAG = 0.72;      // how far out counts as a flick
-const FLICK_MS = 190;        // ...and how fast it had to get there
+// Loosened after playtest — a real thumb flicks slower and shorter than a
+// synthetic one, and a melee that needs a perfect gesture reads as broken.
+const FLICK_MAG = 0.60;      // how far out counts as a flick
+const FLICK_MS = 230;        // ...and how fast it had to get there
 const FLICK_RESET = 0.30;    // fall back inside this to re-arm the next flick
 const FLICK_MUTE_MS = 260;   // camera ignores this stick briefly after a flick,
                              // so a melee swipe doesn't also whip the view

@@ -102,6 +102,29 @@ async function boot() {
   rope.castShadow = true;
   scene.add(rope);
 
+  // ── melee swipe arc ──────────────────────────────────────────────────────
+  // A visible ribbon through the swing. Without it the melee is a 0.34s arm
+  // rotation on a small character and it genuinely is hard to tell whether the
+  // flick registered — which is exactly what got reported.
+  //
+  // Built as a yawed GROUP containing a tilted ring, rather than one mesh with
+  // three Euler angles. Setting .rotation.x and .rotation.z on a single mesh
+  // composes in the wrong order — the sweep ended up spinning about the world
+  // axis instead of about her, and showed as two slivers either side of her
+  // head. A parent for the yaw and a child for the tilt has no such ambiguity.
+  const swipePivot = new THREE.Group();
+  const swipeGeo = new THREE.RingGeometry(1.45, 2.50, 28, 1, -0.85, 1.7);
+  const swipeMat = new THREE.MeshBasicMaterial({
+    color: 0xfff2c8, transparent: true, opacity: 0, side: THREE.DoubleSide,
+    depthWrite: false, blending: THREE.AdditiveBlending,
+  });
+  const swipe = new THREE.Mesh(swipeGeo, swipeMat);
+  swipe.rotation.x = -Math.PI / 2 + 0.30;   // lie it near-flat, tipped forward
+  swipePivot.add(swipe);
+  swipePivot.visible = false;
+  swipe.renderOrder = 20;
+  scene.add(swipePivot);
+
   const hookHead = new THREE.Mesh(
     new THREE.TorusGeometry(0.16, 0.045, 6, 12, Math.PI * 1.4),
     toonMaterial({ color: 0x9aa3ad, rimStrength: 0.9, rimColor: 0xffffff })
@@ -226,6 +249,25 @@ async function boot() {
     } else {
       rope.visible = false;
       hookHead.visible = false;
+    }
+
+    // ── melee swipe arc ────────────────────────────────────────────────────
+    if (peggy.meleeTimer > 0) {
+      const t = clamp01(1 - peggy.meleeTimer / peggy.T.meleeTime);   // 0 -> 1
+      swipePivot.visible = true;
+      swipePivot.position.set(
+        peggy.position.x,
+        peggy.position.y + peggy.T.height * 0.55,
+        peggy.position.z
+      );
+      // Sweep through the arc as the swing lands: leads from her hook side and
+      // carries across the front.
+      swipePivot.rotation.y = peggy.facing - 1.15 + t * 2.3;
+      swipePivot.scale.setScalar(0.62 + t * 0.5);
+      // bright at the strike, gone by the follow-through
+      swipeMat.opacity = Math.sin(t * Math.PI) * 0.9;
+    } else {
+      swipePivot.visible = false;
     }
 
     // ── underwater grade ───────────────────────────────────────────────────
