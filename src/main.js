@@ -113,7 +113,7 @@ async function boot() {
   // axis instead of about her, and showed as two slivers either side of her
   // head. A parent for the yaw and a child for the tilt has no such ambiguity.
   const swipePivot = new THREE.Group();
-  const swipeGeo = new THREE.RingGeometry(1.45, 2.50, 28, 1, -0.85, 1.7);
+  const swipeGeo = new THREE.RingGeometry(1.45, 2.50, 28, 1, -Math.PI / 2 - 0.85, 1.7);
   const swipeMat = new THREE.MeshBasicMaterial({
     color: 0xfff2c8, transparent: true, opacity: 0, side: THREE.DoubleSide,
     depthWrite: false, blending: THREE.AdditiveBlending,
@@ -204,6 +204,7 @@ async function boot() {
   let promptTarget = null;
   let promptIconKey = '';
   let hookTarget = null;
+  let meleeSwing = null;   // the open strike window: { hit: Set, power }
   document.body.classList.toggle('touch', input.isTouch);
 
   // ── frame state ──────────────────────────────────────────────────────────
@@ -292,6 +293,45 @@ async function boot() {
     updateLoose(dt, water);
     for (const crab of crabs) crab.update(dt, peggy);
 
+    // ── the melee strike window ────────────────────────────────────────────
+    // Runs every frame of the swing (past the wind-up), each target once.
+    if (peggy.meleeTimer > 0 && meleeSwing) {
+      const t = 1 - peggy.meleeTimer / (peggy.meleeDuration || 0.32);
+      if (t > 0.12) {
+        for (const h of loose) {
+          if (h.held || meleeSwing.hit.has(h)) continue;
+          if (!peggy.meleeHits(h.position.x, h.position.y, h.position.z)) continue;
+          meleeSwing.hit.add(h);
+          const dx = h.position.x - peggy.position.x, dz = h.position.z - peggy.position.z;
+          const d = Math.hypot(dx, dz) || 1;
+          knock(h, dx / d, dz / d, meleeSwing.power);
+          follow.addTrauma(0.14);
+        }
+        for (const crab of crabs) {
+          if (crab.dead || meleeSwing.hit.has(crab)) continue;
+          if (!peggy.meleeHits(crab.position.x, crab.position.y, crab.position.z)) continue;
+          meleeSwing.hit.add(crab);
+          const dx = crab.position.x - peggy.position.x, dz = crab.position.z - peggy.position.z;
+          const d = Math.hypot(dx, dz) || 1;
+          if (crab.hit(dx / d, dz / d, meleeSwing.power)) follow.addTrauma(0.16);
+          if (crab.justDied) {
+            crab.justDied = false;
+            follow.addTrauma(0.2);
+            for (let ci = 0; ci < 3; ci++) {
+              const a = (ci / 3) * Math.PI * 2;
+              addCoin(
+                crab.position.x + Math.cos(a) * 0.9,
+                crab.position.y + 0.7,
+                crab.position.z + Math.sin(a) * 0.9
+              );
+            }
+          }
+        }
+      }
+    } else if (peggy.meleeTimer <= 0) {
+      meleeSwing = null;
+    }
+
     // ── doubloons ──────────────────────────────────────────────────────────
     for (const c of coins) {
       if (c.userData.collected) continue;
@@ -313,35 +353,12 @@ async function boot() {
     for (const e of peggy.drainEvents()) {
       if (e.type === 'melee') {
         follow.addTrauma(e.stage === 2 ? 0.22 : 0.10);
-        // Anything loose inside the swing arc gets sent flying. This is the
-        // only feedback a flick has until there are enemies, and without it the
-        // gesture feels like it didn't register. The finisher hits harder.
-        for (const h of loose) {
-          if (h.held || !peggy.meleeHits(h.position.x, h.position.y, h.position.z)) continue;
-          const dx = h.position.x - e.x, dz = h.position.z - e.z;
-          const d = Math.hypot(dx, dz) || 1;
-          knock(h, dx / d, dz / d, e.power || 11);
-          follow.addTrauma(0.14);
-        }
-        for (const crab of crabs) {
-          if (crab.dead || !peggy.meleeHits(crab.position.x, crab.position.y, crab.position.z)) continue;
-          const dx = crab.position.x - e.x, dz = crab.position.z - e.z;
-          const d = Math.hypot(dx, dz) || 1;
-          if (crab.hit(dx / d, dz / d, e.power || 11)) follow.addTrauma(0.16);
-          if (crab.justDied) {
-            crab.justDied = false;
-            follow.addTrauma(0.2);
-            // burst into doubloons where it popped
-            for (let ci = 0; ci < 3; ci++) {
-              const a = (ci / 3) * Math.PI * 2;
-              addCoin(
-                crab.position.x + Math.cos(a) * 0.9,
-                crab.position.y + 0.7,
-                crab.position.z + Math.sin(a) * 0.9
-              );
-            }
-          }
-        }
+        // Open the strike window. Hits are NOT evaluated here — this event
+        // fires on frame 0 of the swing, before the lunge has moved her, which
+        // was exactly why crabs only died at point-blank. The per-frame check
+        // below tests every frame of the swing, so the lunge carries the arc
+        // into things the wind-up couldn't reach.
+        meleeSwing = { hit: new Set(), power: e.power || 11 };
       } else if (e.type === 'jump' && e.air) {
         // Double jump: a small kick so the second jump reads as its own beat.
         model.impact(2.2);

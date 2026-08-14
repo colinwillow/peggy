@@ -37,9 +37,6 @@
 import { Joystick } from './Joystick.js';
 import { clamp } from '../core/math.js';
 
-/** Must equal HOLD_MAX_PUSH in Joystick.js — see the comment at its use site. */
-const CAM_DEADZONE = 0.38;
-
 class Button {
   constructor() { this.down = false; this.pressed = false; this.released = false; this._prev = false; }
   set(v) { this.down = !!v; }
@@ -161,12 +158,13 @@ export class Input {
 
   /** Call once per frame, before anything reads the intent. */
   sample(dt) {
-    // A still hold produces no touchmove events, so aim activation has to be
-    // polled rather than event-driven.
-    this.stickL.pollAim();
-    this.stickR.pollAim();
+    // Per-frame gesture resolution. A still hold produces no touchmove events,
+    // so this cannot be event-driven — and poll() also hands back the swipe
+    // pixels the camera should consume this frame.
+    this.stickL.poll();
+    const swipeDx = this.stickR.poll();
 
-    let mx = 0, my = 0, lx = 0, ly = 0;
+    let mx = 0, my = 0, lx = 0, ly = 0, dxPx = 0;
     let jump = false, hook = false, melee = false, dive = false, recentre = false, pause = false;
 
     // touch sticks — screen y is down, intent y is forward, hence the negation
@@ -174,21 +172,12 @@ export class Input {
       mx += this.stickL.x; my += -this.stickL.y;
       if (this.stickL.mag > 0.05) this.lastSource = 'touch';
     }
-    // While aiming, the stick belongs to the throw — no camera at all.
-    if (this.stickR.held && !this.stickR.muted && this.stickR.steadyOut && !this.stickR.aimActive) {
-      // x only — the vertical axis is deliberately dropped, not merely unused.
-      // And muted right after a flick, so a melee swipe doesn't whip the view.
-      //
-      // The deadzone MATCHES the hold zone exactly. That is what makes holding
-      // for the hook safe: anywhere your thumb can rest and still count as a
-      // hold is guaranteed not to have nudged the camera, so the two gestures
-      // can never half-fire each other.
-      const m = this.stickR.mag;
-      if (m > CAM_DEADZONE) {
-        const k = (m - CAM_DEADZONE) / (1 - CAM_DEADZONE);
-        lx += (this.stickR.x / m) * k;
-        this.lastSource = 'touch';
-      }
+    // The touch camera is SWIPE-based: it consumes movement pixels, not held
+    // deflection — see Joystick.js for why that is what makes hold-to-aim
+    // possible. poll() has already filtered out flicks, aims, and mutes.
+    if (swipeDx !== 0) {
+      dxPx += swipeDx;
+      this.lastSource = 'touch';
     }
     this.hookCharge = this.stickR.holdCharge;
     this.hookAim.active = this.stickR.aimActive;
@@ -211,9 +200,9 @@ export class Input {
     recentre = recentre || !!k.KeyR;
     pause = pause || !!k.Escape;
 
-    // mouse look — horizontal only, to match the sticks
+    // mouse look — the same swipe pixels as touch, scaled for a wrist
     if (this._mouse.locked) {
-      lx += clamp(this._mouse.dx * 0.14, -1, 1);
+      dxPx += this._mouse.dx * 0.45;
     }
     this._mouse.dx = 0; this._mouse.dy = 0;
     melee = melee || this._mouse.down;   // click = melee, matching flick-right
@@ -244,6 +233,7 @@ export class Input {
 
     this.move.x = mx; this.move.y = my; this.move.mag = Math.min(mMag, 1);
     this.look.x = lx; this.look.y = ly; this.look.mag = Math.min(lMag, 1);
+    this.look.dxPx = dxPx;
 
     this.jump.set(jump);
     this.hook.set(hook);

@@ -31,7 +31,8 @@ const CAM = {
   // on a pitch axis nobody asks for.
   pitch: 0.30,           // ~17 degrees above her, looking down
 
-  yawRate: 2.9,          // radians/sec at full stick
+  yawRate: 2.9,          // radians/sec at full stick (gamepad / Q,E)
+  swipeSens: 0.0075,     // radians per swiped pixel (touch / mouse)
   yawHL: 0.10,
   yawHLFree: 0.03,       // while the player is actively turning
   maxYawLag: 0.09,       // radians the camera may trail its target
@@ -104,10 +105,12 @@ export class FollowCamera {
 
   update(dt, peggy, look) {
     // ── manual rotation ───────────────────────────────────────────────────
-    // Horizontal only. look.y is ignored on purpose — see CAM.pitch.
-    const turning = Math.abs(look.x) > 0.05;
+    // Two inputs: a rate from held sticks (gamepad, Q/E) and swiped pixels
+    // from touch/mouse. Horizontal only; look.y is ignored — see CAM.pitch.
+    const dxPx = look.dxPx || 0;
+    const turning = Math.abs(look.x) > 0.05 || Math.abs(dxPx) > 0.5;
     if (turning) {
-      this.targetYaw -= look.x * CAM.yawRate * dt;
+      this.targetYaw -= look.x * CAM.yawRate * dt + dxPx * CAM.swipeSens;
       this._recentring = false;    // any manual input cancels a recentre
     }
 

@@ -61,9 +61,22 @@ by deflection over time:
 | Gesture | Motion | Verb |
 |---|---|---|
 | **tap** | down, barely moves, up fast | jump (again in the air: double jump) |
-| **hold** | down, rest a beat — then the stick AIMS | aim the hook; release throws |
-| **flick** | snapped out fast and far | melee — chain three for the combo |
-| **push** | out and sustained | steer the camera |
+| **hold** | down and REST — deflected or not | aim the hook that way; release throws |
+| **flick** | snapped out and released/rebounded | melee — chain three for the combo |
+| **swipe** | travelling | pan the camera |
+
+**The camera is swipe-based**, not deflection-based: it pans while the thumb
+MOVES and stops when the thumb stops. That is what makes "press and hold in a
+direction, release to launch" possible at all — under the old rate-based
+camera, a held-out thumb WAS the camera, so that posture could never mean aim.
+Now a thumb that rests for ~0.4s becomes the aim no matter how far out it sits,
+the arc appears, and release throws in the held direction.
+
+A fast pan and a flick are both fast, so a flick is a CANDIDATE until the
+thumb releases or rebounds (melee) or keeps travelling past 200ms (it was a
+pan). Camera pixels are buffered while that's undecided — dropped on a melee,
+flushed on a pan — so a swipe never fires a sword and a sword never whips the
+view.
 
 **Holding shows the throw.** From the moment the hold engages, a dashed gold
 arc draws the rope's flight path, the lock-on diamond marks what the assist

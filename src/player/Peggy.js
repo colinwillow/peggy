@@ -82,9 +82,9 @@ const TUNING = {
   // its own tuning row because the third hit has to feel like a finisher, not
   // a third copy of the first — longer, wider (a full circle), harder.
   meleeStages: [
-    { time: 0.32, lunge: 4.2, range: 2.3, arc: 1.5,          power: 11 },
-    { time: 0.30, lunge: 4.6, range: 2.4, arc: 1.7,          power: 12 },
-    { time: 0.52, lunge: 5.6, range: 2.8, arc: Math.PI * 2,  power: 17 },
+    { time: 0.32, lunge: 4.2, range: 2.6, arc: 1.8,          power: 11 },
+    { time: 0.30, lunge: 4.6, range: 2.7, arc: 2.0,          power: 12 },
+    { time: 0.52, lunge: 5.6, range: 3.1, arc: Math.PI * 2,  power: 17 },
   ],
   comboWindow: 0.60,      // seconds after a swing ends to chain the next stage
   comboCooldown: 0.10,    // beat between chained swings

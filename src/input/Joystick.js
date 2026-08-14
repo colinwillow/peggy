@@ -57,18 +57,30 @@ const HOLD_MAX_PUSH = 0.38;
 // 60-90ms, so ~10-15 units/sec. A deliberate camera drag is 2-4 units/sec. The
 // threshold sits in the empty middle.
 const FLICK_MAG = 0.55;      // how far out it must get
-const FLICK_SPEED = 6.0;     // deflection units per second — the real test
+const FLICK_SPEED = 6.0;     // deflection units per second — the arming test
 const FLICK_RESET = 0.30;    // fall back inside this to re-arm the next flick
-const FLICK_SNAP_MS = 260;   // a flick faster than the sample rate: caught on release
-const FLICK_MUTE_MS = 260;   // camera ignores this stick briefly after a flick,
-                             // so a melee swipe doesn't also whip the view
-// ...and the camera does not START turning until the thumb has been pushed out
-// for this long. Muting AFTER a flick fires is not enough on its own: the
-// wind-up frames — thumb already past the deadzone, not yet fast enough to be
-// recognised — leaked about 11 degrees of yaw into every melee. A flick is over
-// long before this window elapses, so it now contributes exactly nothing, while
-// a real drag pays a delay of five frames that the camera's own smoothing hides.
-const CAM_SETTLE_MS = 95;
+const FLICK_MUTE_MS = 260;   // camera ignores this stick briefly after a flick
+
+// ── THE CAMERA IS SWIPE-BASED, AND WHY THAT MATTERS ────────────────────────
+// The camera pans with thumb MOVEMENT (pixels of travel), not with held
+// deflection. This is the change that makes hold-to-aim work the way a hand
+// expects: once the pan is delta-based, a thumb that is out-and-STILL is doing
+// nothing to the camera — so that posture is free to mean "aiming the hook in
+// this direction", which is exactly the press-hold-release-to-launch gesture.
+// Rate-based panning could never allow it: held deflection WAS the camera.
+//
+// A fast pan and a flick are both fast, so the flick can't fire the instant it
+// crosses the threshold — it becomes a CANDIDATE, and resolves on what happens
+// next: released or snapped back quickly -> melee; still travelling after
+// 200ms -> it was a pan all along. Camera deltas are buffered while a
+// candidate is open (and for the first beat of every touch), then dropped on a
+// flick or flushed to the camera on a pan — so a melee never whips the view
+// and a pan loses nothing, it just starts a breath late.
+const CAND_TIMEOUT_MS = 200; // candidate still travelling after this = a pan
+const CAND_REBOUND = 0.12;   // deflection fallback from peak that fires the flick
+const SWIPE_BUFFER_MS = 110; // deltas buffered at touch start, pending a verdict
+const AIM_STILL_MS = 200;    // this long without movement (plus the hold time)
+const STILL_SPEED = 400;     // px/s — thumb speeds below this count as "still"
 
 export class Joystick {
   /**
@@ -119,6 +131,11 @@ export class Joystick {
     this._lastMoveT = 0;
     this._radialSpeed = 0;
     this._outSince = 0;
+    this._cand = null;          // open flick candidate: { t, peak }
+    this._pendingDx = 0;        // swipe px since last poll
+    this._bufferDx = 0;         // swipe px held back pending flick-vs-pan
+    this._stillSince = 0;
+    this._lastPx = 0;
 
     this._tapStart = 0;
     this._tapTravelled = false;
@@ -205,8 +222,12 @@ export class Joystick {
     this._radialSpeed = 0;
     this._outSince = 0;
     this.aimActive = false;
-    this._draggedEarly = false;
     this._flickedThisTouch = false;
+    this._cand = null;
+    this._pendingDx = 0;
+    this._bufferDx = 0;
+    this._stillSince = this._tapStart;
+    this._lastPx = t.clientX;
     this._tapTravelled = false;
     this._tapPeak = 0;
     this._flicked = false;
@@ -222,6 +243,17 @@ export class Joystick {
       e.preventDefault();
       const travel = Math.hypot(t.clientX - this.centreX, t.clientY - this.centreY);
       if (travel > TAP_MAX_TRAVEL) this._tapTravelled = true;
+      // swipe delta + stillness tracking, for the camera and the aim-hold.
+      // Sub-slop deltas are dropped entirely: a resting thumb vibrates a pixel
+      // or two per frame, and letting that pan meant a sloppy aim-hold drifted
+      // the camera ~5 degrees before the aim engaged. Real pans move 4-10px a
+      // frame and lose nothing to this.
+      const pdx = t.clientX - this._lastPx;
+      this._lastPx = t.clientX;
+      if (Math.abs(pdx) >= 1.6) this._pendingDx += pdx;
+      const now2 = performance.now();
+      const edt = Math.max(now2 - this._lastMoveT, 1) / 1000;
+      if (Math.abs(pdx) / edt > STILL_SPEED) this._stillSince = now2;
       const frac = travel / this.radius;
       if (frac > this._tapPeak) this._tapPeak = frac;
       this._apply(t.clientX, t.clientY);
@@ -241,11 +273,11 @@ export class Joystick {
       // must never have been pushed out, or it was a camera drag that happened
       // to start slowly.
       const wasHold = this.aimActive && !this._flickedThisTouch;
-      // A flick can be over before two touchmoves have landed, especially on a
-      // slow frame — the speed test never gets a chance to see it. Catch that
-      // on release: far out, and gone almost immediately.
+      // A candidate that ends in a release IS a flick — snapped out and let go
+      // before the pan timeout. This is the common case for a thumb that flicks
+      // and lifts in one motion.
       const wasSnapFlick = !this._flickedThisTouch && !wasTap && !wasHold
-        && this._tapPeak >= FLICK_MAG && held < FLICK_SNAP_MS;
+        && this._cand !== null;
 
       this.touchId = null;
       this._pressedCentre = false;
@@ -308,6 +340,7 @@ export class Joystick {
   _gesture(frac) {
     const now = performance.now();
     const dt = Math.max((now - this._lastMoveT) / 1000, 1 / 500);
+    const prevFrac = this._lastFrac;
     const inst = (frac - this._lastFrac) / dt;
     // Smoothed, so one jittery sample between two touchmoves can't fire a melee.
     this._radialSpeed = this._radialSpeed * 0.5 + inst * 0.5;
@@ -322,15 +355,25 @@ export class Joystick {
     if (frac >= HOLD_MAX_PUSH) { if (!this._outSince) this._outSince = now; }
     else this._outSince = 0;
 
-    // A touch that pushes out BEFORE aim mode began is a camera drag, and it
-    // stays one for the rest of that touch — it can never turn into an aim, so
-    // ending a drag by resting the thumb can never accidentally throw a hook.
-    // Once aim IS active the same deflection means "steer the throw" instead.
-    if (frac >= HOLD_MAX_PUSH && !this.aimActive) this._draggedEarly = true;
-
-    if (!this._flicked && !this.aimActive
-        && frac >= FLICK_MAG && this._radialSpeed >= FLICK_SPEED) {
-      this._fireFlick();
+    // ── flick candidate ───────────────────────────────────────────────────
+    // Crossing the threshold fast ARMS a flick; it fires on a rebound (the
+    // thumb snapping back toward centre — the apex of a real flick) and it is
+    // cancelled if the thumb just keeps going, which is what a camera pan does.
+    // Release-fire is handled in _onEnd.
+    if (this._cand) {
+      if (frac > this._cand.peak) this._cand.peak = frac;
+      else if (frac < this._cand.peak - CAND_REBOUND) {
+        this._fireFlick();
+        return;
+      }
+    } else if (!this._flicked && !this._flickedThisTouch && !this.aimActive
+        && prevFrac < FLICK_MAG && frac >= FLICK_MAG
+        && this._radialSpeed >= FLICK_SPEED) {
+      // Arms on the CROSSING only. Without the prevFrac guard, a pan whose
+      // candidate had already timed out re-armed a fresh one every sample —
+      // the thumb is still out and still fast — and the eventual lift fired a
+      // melee at the end of every long camera pan.
+      this._cand = { t: now, peak: frac };
     }
   }
 
@@ -343,24 +386,71 @@ export class Joystick {
    * touch, so mashing melee without lifting can never trip into aim mode and
    * eat the next swing.
    */
-  pollAim() {
-    if (!this.held || this._flickedThisTouch || this._draggedEarly) {
+  pollAim() { this.poll(); }   // kept for callers that only care about aim
+
+  /**
+   * Once per frame. Resolves candidate timeouts, decides what the buffered
+   * swipe pixels become (camera pan or nothing), and runs the aim-hold clock.
+   * Returns the swipe pixels the camera should consume this frame.
+   */
+  poll() {
+    const now = performance.now();
+
+    if (!this.held) {
+      // flush anything a just-released pan left behind
+      const out = this._bufferDx + this._pendingDx;
+      this._bufferDx = 0;
+      this._pendingDx = 0;
       this.holdCharge = 0;
-      return;
+      return this.muted ? 0 : out;
     }
-    const t = performance.now() - this._tapStart;
-    if (!this.aimActive && t >= HOLD_MIN_MS) {
-      this.aimActive = true;
-      this.lastGesture = 'hold';
+
+    // candidate still travelling after the window: it was a pan
+    if (this._cand && now - this._cand.t > CAND_TIMEOUT_MS) this._cand = null;
+
+    // ── the aim-hold ──────────────────────────────────────────────────────
+    // Held long enough, still long enough, and this touch has not flicked.
+    // Deflection does NOT disqualify it — "press and hold in a direction,
+    // release to launch that way" is the whole gesture. The camera can afford
+    // this because a still thumb no longer pans.
+    if (!this._flickedThisTouch) {
+      const heldMs = now - this._tapStart;
+      if (!this.aimActive && heldMs >= HOLD_MIN_MS && now - this._stillSince >= AIM_STILL_MS) {
+        this.aimActive = true;
+        this.lastGesture = 'hold';
+      }
+      this.holdCharge = this.aimActive ? clamp01((heldMs - HOLD_MIN_MS) / 380) : 0;
+    } else {
+      this.holdCharge = 0;
     }
-    this.holdCharge = this.aimActive ? clamp01((t - HOLD_MIN_MS) / 380) : 0;
+
+    // ── swipe routing ─────────────────────────────────────────────────────
+    if (this.aimActive || this.muted) {
+      // aiming steers the throw, not the view; post-flick motion is noise
+      this._pendingDx = 0;
+      this._bufferDx = 0;
+      return 0;
+    }
+    const buffering = this._cand !== null || now - this._tapStart < SWIPE_BUFFER_MS;
+    if (buffering) {
+      this._bufferDx += this._pendingDx;
+      this._pendingDx = 0;
+      return 0;
+    }
+    const out = this._bufferDx + this._pendingDx;
+    this._bufferDx = 0;
+    this._pendingDx = 0;
+    return out;
   }
 
-  _fireFlick() {
+    _fireFlick() {
     this._flicked = true;
     this._flickedThisTouch = true;
+    this._cand = null;
+    this._pendingDx = 0;        // a melee swipe contributes nothing to the camera
+    this._bufferDx = 0;
     this._muteUntil = performance.now() + FLICK_MUTE_MS;
-    this._outSince = 0;         // a flick can never count as a settled drag
+    this._outSince = 0;
     this.holdCharge = 0;
     this.lastGesture = 'flick';
     if (this.onFlick) this.onFlick(this.angle);

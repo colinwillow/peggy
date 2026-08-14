@@ -218,7 +218,10 @@ export class ProxyPeggyModel {
 
     // ── hook arm (her right, screen left)
     this.hookArm = new THREE.Group();
-    this.hookArm.position.set(-0.50, 0.10, 0.02);
+    // Pivots sit OUTSIDE the torso's widest point (0.52 radius, up at the
+    // shoulder line) — inside it, every swing frame put the arm through the
+    // belly and it visibly poked out of her lower half while running.
+    this.hookArm.position.set(-0.58, 0.20, 0.02);
     this.body.add(this.hookArm);
     const upperGeo = new THREE.CapsuleGeometry(0.115, 0.26, 5, 10);
     mesh(upperGeo, tentacleMat, this.hookArm, 0, -0.16, 0).rotation.z = 0.18;
@@ -237,7 +240,7 @@ export class ProxyPeggyModel {
 
     // ── tentacle arm (her left, screen right)
     this.tentacleArm = new THREE.Group();
-    this.tentacleArm.position.set(0.50, 0.10, 0.02);
+    this.tentacleArm.position.set(0.58, 0.20, 0.02);
     this.body.add(this.tentacleArm);
     this.tentacleSegments = [];
     let parent = this.tentacleArm;
@@ -453,11 +456,13 @@ export class ProxyPeggyModel {
     // hook arm counter-swings, snaps up when the hook fires, and the melee
     // swing overrides both
     this.hookArm.rotation.x = lerp(
-      -Math.sin(phase) * 0.55 * speed,
+      -Math.sin(phase) * 0.38 * speed,
       -1.45,
       this._hookRaise
     ) + swingX;
-    this.hookArm.rotation.z = lerp(0.12, -0.25, this._hookRaise) + swingZ;
+    // baseline z tips the arm OUT from the fat torso so the run-swing arcs
+    // around the belly instead of through it
+    this.hookArm.rotation.z = lerp(0.30, -0.25, this._hookRaise) + swingZ;
     this.hookArm.rotation.y = swingY;
 
     // ── charging the hook: she rears back and the eye widens ──────────────
@@ -476,7 +481,8 @@ export class ProxyPeggyModel {
       seg.rotation.x = Math.sin(t * wave - off) * (0.18 + i * 0.05) + (inWater ? 0.25 : 0.10);
       seg.rotation.z = Math.cos(t * wave * 0.7 - off) * (0.10 + i * 0.03);
     }
-    this.tentacleArm.rotation.x = Math.sin(phase + Math.PI) * 0.42 * speed;
+    this.tentacleArm.rotation.x = Math.sin(phase + Math.PI) * 0.30 * speed;
+    this.tentacleArm.rotation.z = -0.30;   // mirrored outward tip
 
     // The CUTLASS side leads the backhand and joins the spin — hook arm and
     // sword arm trading swings is what sells the combo as three moves rather
