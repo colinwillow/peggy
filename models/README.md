@@ -42,3 +42,30 @@ controller already exposes that flag.
 keeping the base colour and any `map`. So author flat colour or a single
 albedo atlas; PBR maps will be discarded. Ink outlines are generated from the
 geometry, so don't model them.
+
+
+---
+
+## Current state: glorp_character.glb
+
+The interim rigged character, loaded automatically (a future `peggy.glb` will
+beat it in the candidate order). Notes from wiring it, useful for the next
+export:
+
+- **No material in the file** — the texture lives at `images/glorp_texture.webp`
+  and is bound by hand in `createPeggyModel` (`flipY = false`, sRGB). Baking it
+  into the GLB would let all of that disappear.
+- **Normals arrive inverted** (C4D's scaled Z-up root flips them); the loader
+  negates them (`fixNormals: true`) and renders two-sided. An export with
+  Y-up / normalized scale would not need either.
+- **Scale/orientation are auto-normalised** at load: the bind pose is measured
+  and sized to 1.5m with feet at y=0, so the export's units don't matter.
+- **Takes map as**: idle, walk, run, running_jump -> jump, in_air -> fall,
+  landing -> land. The `.001` duplicates, `tpose` and `CINEMA_4D_Main` are
+  ignored. `left_strafe` / `right_strafe` / `run_backward` load but are unused
+  until there's a strafe mode.
+- **Clips are cleanly in-place** (hips drift ~2cm) — keep authoring that way,
+  the controller owns all world movement.
+- **Still missing**: swim, dive, hook throw, swing, melee clips. Their states
+  currently fall back (swing/dive -> in_air, melee -> locomotion + the swipe
+  arc effect).

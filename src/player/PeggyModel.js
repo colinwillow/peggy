@@ -50,13 +50,16 @@ const CLIPS = {
   idle: ['idle', 'Idle', 'peggy_idle'],
   walk: ['walk', 'Walk', 'peggy_walk'],
   run: ['run', 'Run', 'peggy_run'],
-  jump: ['jump', 'Jump', 'peggy_jump'],
-  fall: ['fall', 'Fall', 'peggy_fall'],
-  land: ['land', 'Land', 'peggy_land'],
+  jump: ['running_jump', 'jump', 'Jump', 'peggy_jump'],
+  fall: ['in_air', 'fall', 'Fall', 'peggy_fall'],
+  land: ['landing', 'land', 'Land', 'peggy_land'],
   swim: ['swim', 'Swim', 'peggy_swim'],
   dive: ['dive', 'Dive', 'peggy_dive'],
   hook: ['hook', 'Hook', 'peggy_hook'],
   swing: ['swing', 'Swing', 'peggy_swing'],
+  strafeL: ['left_strafe'],
+  strafeR: ['right_strafe'],
+  back: ['run_backward'],
 };
 
 // ── helpers ────────────────────────────────────────────────────────────────
@@ -555,7 +558,12 @@ export class ProxyPeggyModel {
 // ── the real thing, when it exists ─────────────────────────────────────────
 
 export class RiggedPeggyModel {
-  constructor(gltf) {
+  /**
+   * @param {object} opts
+   *   map      THREE.Texture to bind — for models exported without materials
+   *   height   world height to normalise to (metres)
+   */
+  constructor(gltf, opts = {}) {
     this.root = new THREE.Group();
     this.isProxy = false;
     this.scene = gltf.scene;
@@ -564,39 +572,80 @@ export class RiggedPeggyModel {
     this.scene.traverse((o) => {
       if (!o.isMesh && !o.isSkinnedMesh) return;
       o.castShadow = true;
-      o.receiveShadow = true;
-      // Re-material to the toon pipeline, keeping whatever maps came in.
+      o.receiveShadow = false;
+      // Scaled skinned meshes routinely fail three's frustum test and vanish
+      // at certain camera angles; the character is always on screen anyway.
+      o.frustumCulled = false;
+      // This export's normals point INWARD (C4D's scaled Z-up root flips
+      // them), which makes every light contribution negative — the model
+      // rendered as a black silhouette from all directions. Verified by A/B:
+      // DoubleSide alone stayed black; negating the normals lit it.
+      if (opts.fixNormals) {
+        const n = o.geometry.attributes.normal;
+        if (n) {
+          for (let i = 0; i < n.count * 3; i++) n.array[i] *= -1;
+          n.needsUpdate = true;
+        }
+      }
       const src = o.material;
       o.material = toonMaterial({
-        color: src.color ? src.color.getHex() : 0xffffff,
-        map: src.map || null,
+        color: src && src.color ? src.color.getHex() : 0xffffff,
+        map: opts.map || (src && src.map) || null,
+        // winding is also suspect on this export; two-sided costs little on
+        // one character and removes the failure mode entirely
+        side: opts.fixNormals ? THREE.DoubleSide : THREE.FrontSide,
       });
     });
 
-    this.outlines = addOutline(this.scene, { thickness: 0.02, color: 0x2a1030 });
+    // ── auto-normalise ────────────────────────────────────────────────────
+    // DCC exports arrive at arbitrary scales (this one: a 0.01 root from
+    // C4D's cm world, Z-up rotation baked into the root). Rather than trust
+    // any of it, measure the bind pose and size it to the controller's
+    // capsule: feet at y=0, head at `height`.
+    const target = opts.height ?? 1.5;
+    const box = new THREE.Box3().setFromObject(this.scene);
+    const size = box.getSize(new THREE.Vector3());
+    if (size.y > 1e-5) this.scene.scale.multiplyScalar(target / size.y);
+    const box2 = new THREE.Box3().setFromObject(this.scene);
+    const centre = box2.getCenter(new THREE.Vector3());
+    this.scene.position.x -= centre.x;
+    this.scene.position.z -= centre.z;
+    this.scene.position.y -= box2.min.y;
+    if (opts.rotateY) this.scene.rotation.y = opts.rotateY;
 
+    // ── clips ─────────────────────────────────────────────────────────────
     this.mixer = new THREE.AnimationMixer(this.scene);
     this.actions = {};
     for (const [key, names] of Object.entries(CLIPS)) {
-      const clip = names.map((n) => THREE.AnimationClip.findByName(gltf.animations, n)).find(Boolean);
-      if (clip) {
-        const a = this.mixer.clipAction(clip);
-        a.enabled = true;
-        a.setEffectiveWeight(0);
-        a.play();
-        this.actions[key] = a;
+      const clip = names
+        .map((n) => THREE.AnimationClip.findByName(gltf.animations, n))
+        .find(Boolean);
+      if (!clip) continue;
+      const a = this.mixer.clipAction(clip);
+      a.enabled = true;
+      a.setEffectiveWeight(0);
+      // One-shot poses hold their last frame instead of looping — a looping
+      // landing plays the crouch over and over.
+      if (key === 'jump' || key === 'land') {
+        a.setLoop(THREE.LoopOnce, 1);
+        a.clampWhenFinished = true;
       }
+      a.play();
+      this.actions[key] = a;
     }
     this.current = null;
-    this._weights = {};
+    this._landT = 0;
   }
 
-  /** Crossfade to a clip by fading weights, so missing clips degrade quietly. */
-  _play(key, fadeHL = 0.09, dt = 0.016) {
+  _play(key, fadeHL, dt) {
+    if (key !== this.current && this.actions[key]) {
+      // Re-entering a one-shot must restart it, or the second jump of a
+      // double-jump shows the clamped final frame of the first.
+      this.actions[key].reset().play();
+    }
     for (const [k, a] of Object.entries(this.actions)) {
       const want = k === key ? 1 : 0;
-      const w = damp(a.getEffectiveWeight(), want, fadeHL, dt);
-      a.setEffectiveWeight(w);
+      a.setEffectiveWeight(damp(a.getEffectiveWeight(), want, fadeHL, dt));
     }
     this.current = key;
   }
@@ -605,19 +654,22 @@ export class RiggedPeggyModel {
     this.root.position.copy(peggy.position);
     this.root.rotation.y = peggy.facing;
 
+    this._landT = Math.max(0, this._landT - dt);
+
     let key = 'idle';
-    if (peggy.state === 'swing') key = 'swing';
-    else if (peggy.state === 'dive') key = 'dive';
-    else if (peggy.state === 'swim') key = 'swim';
+    if (peggy.state === 'swing') key = this.actions.swing ? 'swing' : 'fall';
+    else if (peggy.state === 'grapple') key = 'fall';
+    else if (peggy.state === 'dive') key = this.actions.dive ? 'dive' : 'fall';
+    else if (peggy.state === 'swim') key = this.actions.swim ? 'swim' : 'idle';
     else if (!peggy.grounded) key = peggy.velocity.y > 0.5 ? 'jump' : 'fall';
+    else if (this._landT > 0 && peggy.speedRatio < 0.3) key = 'land';
     else if (peggy.speedRatio > 0.55) key = 'run';
     else if (peggy.speedRatio > 0.08) key = 'walk';
 
-    if (!this.actions[key]) key = this.actions.idle ? 'idle' : key;
-    this._play(key, 0.09, dt);
+    if (!this.actions[key]) key = this.actions.idle ? 'idle' : Object.keys(this.actions)[0];
+    this._play(key, 0.07, dt);
 
-    // Keep the locomotion clips in step with actual ground speed, so feet
-    // don't skate at intermediate speeds.
+    // Feet stay honest: locomotion clips scrub with actual ground speed.
     if ((key === 'walk' || key === 'run') && this.actions[key]) {
       this.actions[key].timeScale = clamp(0.6 + peggy.speedRatio * 1.1, 0.5, 2.0);
     }
@@ -625,25 +677,49 @@ export class RiggedPeggyModel {
     this.mixer.update(dt);
   }
 
-  impact() {}
+  /** Landing kick from main.js — plays the landing clip if she stays put. */
+  impact(strength) {
+    if (strength > 3) this._landT = 0.5;
+  }
+
   get object3D() { return this.root; }
 }
 
 /**
- * Load the rigged model if it's there, otherwise use the proxy.
+ * Load the best available model, falling back down the chain:
+ * a rigged peggy.glb beats the interim glorp character beats the proxy.
  * Never rejects — a missing model must not stop the game booting.
  */
-export async function createPeggyModel(url = 'models/peggy.glb') {
-  try {
-    const loader = new GLTFLoader();
-    const gltf = await loader.loadAsync(url);
-    console.info('[peggy] loaded rigged model:', url,
-      '· clips:', gltf.animations.map((a) => a.name).join(', ') || '(none)');
-    return new RiggedPeggyModel(gltf);
-  } catch {
-    console.info('[peggy] no models/peggy.glb yet — using the procedural proxy.');
-    return new ProxyPeggyModel();
+export async function createPeggyModel() {
+  const candidates = [
+    { url: 'models/peggy.glb' },
+    // Interim rigged character. Exported without any material, so the texture
+    // rides alongside and is bound here by hand.
+    { url: 'models/glorp_character.glb', texture: 'images/glorp_texture.webp', fixNormals: true },
+  ];
+
+  const loader = new GLTFLoader();
+  for (const c of candidates) {
+    try {
+      const gltf = await loader.loadAsync(c.url);
+      let map = null;
+      if (c.texture) {
+        try {
+          map = await new THREE.TextureLoader().loadAsync(c.texture);
+          // glTF UV convention: v runs top-down, so the texture must not flip.
+          map.flipY = false;
+          map.colorSpace = THREE.SRGBColorSpace;
+        } catch {
+          console.warn('[peggy] texture missing:', c.texture);
+        }
+      }
+      console.info('[peggy] rigged model:', c.url,
+        '· clips:', gltf.animations.map((a) => a.name).join(', ') || '(none)');
+      return new RiggedPeggyModel(gltf, { map, height: 1.5, fixNormals: c.fixNormals });
+    } catch { /* try the next candidate */ }
   }
+  console.info('[peggy] no rigged model found — using the procedural proxy.');
+  return new ProxyPeggyModel();
 }
 
 export { CLIPS };
