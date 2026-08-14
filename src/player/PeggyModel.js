@@ -258,6 +258,25 @@ export class ProxyPeggyModel {
       s.scale.set(1, 0.5, 1);
     }
 
+    // ── the cutlass, curled in the tentacle's tip ─────────────────────────
+    // She's a pirate: hook on one side, sword on the other. The blade is a
+    // flattened torus arc — the classic cutlass sweep in one primitive.
+    this.cutlass = new THREE.Group();
+    const tip = this.tentacleSegments[this.tentacleSegments.length - 1];
+    this.cutlass.position.set(0, -0.14, 0.04);
+    this.cutlass.rotation.set(0.5, 0, -0.4);
+    tip.add(this.cutlass);
+    const bladeGeo = new THREE.TorusGeometry(0.38, 0.045, 6, 14, 1.9);
+    bladeGeo.scale(1, 1, 0.28);
+    const blade = mesh(bladeGeo, metalMat, this.cutlass, 0.10, 0.34, 0);
+    blade.rotation.z = -0.5;
+    mesh(new THREE.ConeGeometry(0.045, 0.16, 6), metalMat, this.cutlass, 0.40, 0.62, 0)
+      .rotation.z = -1.1;
+    // guard + grip
+    const guard = mesh(new THREE.SphereGeometry(0.085, 10, 8, 0, TAU, 0, Math.PI * 0.6), goldMat, this.cutlass, 0, 0.06, 0);
+    guard.rotation.x = Math.PI;
+    mesh(new THREE.CylinderGeometry(0.032, 0.038, 0.16, 8), mat(PALETTE.leatherDark), this.cutlass, 0, -0.02, 0);
+
     // ── legs: one real, one peg. The asymmetry is the character.
     this.legL = new THREE.Group();          // her good leg
     this.legL.position.set(0.21, -0.42, 0);
@@ -458,6 +477,20 @@ export class ProxyPeggyModel {
       seg.rotation.z = Math.cos(t * wave * 0.7 - off) * (0.10 + i * 0.03);
     }
     this.tentacleArm.rotation.x = Math.sin(phase + Math.PI) * 0.42 * speed;
+
+    // The CUTLASS side leads the backhand and joins the spin — hook arm and
+    // sword arm trading swings is what sells the combo as three moves rather
+    // than one animation played three times.
+    if (meleeT >= 0) {
+      const stage = peggy.meleeStage || 0;
+      if (stage === 1) {
+        this.tentacleArm.rotation.x = swingX * 0.9;
+        this.tentacleArm.rotation.z = -swingZ * 0.8;
+      } else if (stage === 2) {
+        this.tentacleArm.rotation.x = -1.0;
+        this.tentacleArm.rotation.z = -1.2;
+      }
+    }
 
     // bandana tails drag behind at speed
     for (let i = 0; i < this.bandanaTails.length; i++) {

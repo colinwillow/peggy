@@ -65,7 +65,7 @@ async function boot() {
     depthScale: QUALITY.waterDepthScale,
   });
 
-  const { level, props, spawn, loose, stairTops, updateLoose, knock } = buildTestIsland(scene);
+  const { level, props, spawn, loose, stairTops, updateLoose, knock, coins, addCoin, crabs } = buildTestIsland(scene);
 
   const terrainMat = toonMaterial({
     color: 0xffffff,
@@ -188,7 +188,9 @@ async function boot() {
   };
   const input = new Input(dom);
 
+  let gold = 0;
   const hud = {
+    gold: document.getElementById('hud-gold'),
     state: document.getElementById('hud-state'),
     speed: document.getElementById('hud-speed'),
     fps: document.getElementById('hud-fps'),
@@ -255,7 +257,7 @@ async function boot() {
       const dir = hook.aimDirection(_v2);
       const target = level.findGrapplePoint(hand, dir, 17, 0.28);
       const end = target
-        ? target.pos
+        ? (target._latch || target.pos)
         : aimCurve.v2.set(hand.x + dir.x * 9.5, hand.y + 1.2, hand.z + dir.z * 9.5);
 
       aimCurve.v0.copy(hand);
@@ -276,7 +278,7 @@ async function boot() {
 
       if (target) {
         lockMarker.visible = true;
-        lockMarker.position.copy(target.pos);
+        lockMarker.position.copy(target._latch || target.pos);
         lockMarker.rotation.y += dt * 3.2;
         lockMarker.scale.setScalar(1 + Math.sin(performance.now() * 0.012) * 0.18);
       } else {
@@ -288,6 +290,24 @@ async function boot() {
     }
 
     updateLoose(dt, water);
+    for (const crab of crabs) crab.update(dt, peggy);
+
+    // ── doubloons ──────────────────────────────────────────────────────────
+    for (const c of coins) {
+      if (c.userData.collected) continue;
+      const dx = c.position.x - peggy.position.x;
+      const dy = c.position.y - (peggy.position.y + 0.8);
+      const dz = c.position.z - peggy.position.z;
+      if (dx * dx + dz * dz < 1.44 && Math.abs(dy) < 1.8) {
+        c.userData.collected = true;
+        c.visible = false;
+        gold++;
+        hud.gold.textContent = gold;
+        hud.gold.classList.remove('pop');
+        void hud.gold.offsetWidth;   // restart the pop animation
+        hud.gold.classList.add('pop');
+      }
+    }
 
     // ── react to what happened ─────────────────────────────────────────────
     for (const e of peggy.drainEvents()) {
@@ -302,6 +322,25 @@ async function boot() {
           const d = Math.hypot(dx, dz) || 1;
           knock(h, dx / d, dz / d, e.power || 11);
           follow.addTrauma(0.14);
+        }
+        for (const crab of crabs) {
+          if (crab.dead || !peggy.meleeHits(crab.position.x, crab.position.y, crab.position.z)) continue;
+          const dx = crab.position.x - e.x, dz = crab.position.z - e.z;
+          const d = Math.hypot(dx, dz) || 1;
+          if (crab.hit(dx / d, dz / d, e.power || 11)) follow.addTrauma(0.16);
+          if (crab.justDied) {
+            crab.justDied = false;
+            follow.addTrauma(0.2);
+            // burst into doubloons where it popped
+            for (let ci = 0; ci < 3; ci++) {
+              const a = (ci / 3) * Math.PI * 2;
+              addCoin(
+                crab.position.x + Math.cos(a) * 0.9,
+                crab.position.y + 0.7,
+                crab.position.z + Math.sin(a) * 0.9
+              );
+            }
+          }
         }
       } else if (e.type === 'jump' && e.air) {
         // Double jump: a small kick so the second jump reads as its own beat.
@@ -492,7 +531,7 @@ async function boot() {
   // ── dev handles ──────────────────────────────────────────────────────────
   // Tuning a controller means changing a number and feeling it immediately.
   // Everything worth touching is reachable from the console.
-  Object.assign(window, { THREE, scene, camera, renderer, peggy, hook, follow, level, water, input, model, loop, stairTops, QUALITY });
+  Object.assign(window, { THREE, scene, camera, renderer, peggy, hook, follow, level, water, input, model, loop, stairTops, QUALITY, coins, crabs });
 
   document.getElementById('boot').classList.add('gone');
   setTimeout(() => document.getElementById('boot').remove(), 600);

@@ -174,8 +174,15 @@ export class Level {
       pos: pos.clone(),
       kind: opts.kind ?? 'anchor',   // 'anchor' = pull yourself to it, 'swing' = hang and swing
       radius: opts.radius ?? 1.0,
+      // A BAR rather than a point: a horizontal segment the hook can latch
+      // anywhere along, monkey-bar style. axis is the bar's direction in the
+      // XZ plane; halfLen its half-length. The latch point is computed per
+      // query as the closest point on the segment to the thrower.
+      axisX: opts.axisX ?? 0,
+      axisZ: opts.axisZ ?? 0,
+      halfLen: opts.halfLen ?? 0,
     });
-    return this;
+    return this.grapplePoints[this.grapplePoints.length - 1];
   }
 
   // ── terrain ──────────────────────────────────────────────────────────────
@@ -342,7 +349,18 @@ export class Level {
 
     let best = null, bestScore = Infinity;
     for (const gp of this.grapplePoints) {
-      const dx = gp.pos.x - from.x, dy = gp.pos.y - from.y, dz = gp.pos.z - from.z;
+      // Bars: latch at the closest point along the segment, so she swings from
+      // wherever she grabbed rather than sliding to the middle.
+      let px = gp.pos.x, pz = gp.pos.z;
+      if (gp.halfLen > 0) {
+        const t = clamp(
+          (from.x - gp.pos.x) * gp.axisX + (from.z - gp.pos.z) * gp.axisZ,
+          -gp.halfLen, gp.halfLen
+        );
+        px += gp.axisX * t;
+        pz += gp.axisZ * t;
+      }
+      const dx = px - from.x, dy = gp.pos.y - from.y, dz = pz - from.z;
       const dist = Math.hypot(dx, dy, dz);
       if (dist > range || dist < 0.6) continue;
 
@@ -355,7 +373,11 @@ export class Level {
       // is worth reaching for; one level with her feet is usually scenery.
       const lift = clamp01(dy / 5);
       const score = dist * (1.6 - dot) * (1 - lift * 0.4);
-      if (score < bestScore) { bestScore = score; best = gp; }
+      if (score < bestScore) {
+        bestScore = score;
+        best = gp;
+        gp._latch = (gp._latch || new THREE.Vector3()).set(px, gp.pos.y, pz);
+      }
     }
     return best;
   }

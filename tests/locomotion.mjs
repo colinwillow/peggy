@@ -466,6 +466,59 @@ const out = await page.evaluate(() => {
     };
   }
 
+  // ── run + double jump distance vs the archipelago's final gap ───────────
+  {
+    P.teleport(0, L.terrainHeight(0, 0) + 0.5, 0);
+    setMove(0, 0); step(60);
+    setMove(0, 1); step(360);                    // full momentum
+    const jz = P.position.z;
+    press('jump'); step(1); release('jump');
+    step(40);                                    // near the apex
+    press('jump'); step(1); release('jump');     // double
+    let guard = 0;
+    while (!P.grounded && guard++ < 800) step(1);
+    r.doubleJumpDistance = +Math.abs(P.position.z - jz).toFixed(2);
+    // The course's last edge gap is 5.6m:clearable only with the double.
+    r.lastGapNeedsDouble = r.runJumpDistance < 5.6 && r.doubleJumpDistance > 6.0;
+  }
+
+  // ── monkey bars: the hook latches ALONG the bar, not at its centre ──────
+  {
+    const bar = L.grapplePoints.find((gp) => gp.halfLen > 0);
+    r.bars = { exists: !!bar };
+    if (bar) {
+      // stand near one END of the bar and aim straight at it
+      const off = 1.3;                            // inside halfLen 1.7
+      const from = new THREE.Vector3(bar.pos.x + off, bar.pos.y - 5, bar.pos.z - 2);
+      const dir = new THREE.Vector3(0, 0, 1);
+      const found = L.findGrapplePoint(from, dir, 17, 0.28);
+      r.bars.found = found === bar;
+      r.bars.latchNearThrow = found && Math.abs(found._latch.x - (bar.pos.x + off)) < 0.2;
+      r.bars.latchNotCentre = found && Math.abs(found._latch.x - bar.pos.x) > 0.8;
+    }
+  }
+
+  // ── crabs take a hit and go flying ──────────────────────────────────────
+  {
+    const crab = window.crabs[0];
+    const hpBefore = crab.hp;
+    crab.hit(1, 0, 12);
+    r.crab = {
+      count: window.crabs.length,
+      lostHp: crab.hp === hpBefore - 1,
+      launched: crab.vel.length() > 5,
+    };
+    // finish it: second hit pops it
+    crab.hit(1, 0, 12);
+    r.crab.dies = crab.dead === true;
+    // put it back so nothing downstream sees a dead crab
+    crab.dead = false; crab.hp = 2; crab.vel.set(0, 0, 0);
+    crab.position.copy(crab.home); crab.root.visible = true; crab.root.scale.setScalar(1);
+    crab._respawnT = 0; crab._popT = 0; crab.justDied = false;
+  }
+
+  r.coinCount = window.coins.length;
+
   return r;
 });
 
@@ -529,6 +582,15 @@ const bools = [
   ['the spin hits all the way round',   out.combo.spinHitsBehind],
   ['the forehand does not hit behind',  out.combo.earlyHitsBehindBlocked],
   ['combo resets after the window',     out.combo.resetsAfterWindow],
+  ['final gap needs the double jump',   out.lastGapNeedsDouble],
+  ['monkey bars exist',                 out.bars.exists],
+  ['bar latch lands near the throw',    out.bars.latchNearThrow],
+  ['bar latch is not just the centre',  out.bars.latchNotCentre],
+  ['crabs spawn',                       out.crab.count >= 4],
+  ['a melee hit costs a crab hp',       out.crab.lostHp],
+  ['...and sends it flying',            out.crab.launched],
+  ['two hits pops it',                  out.crab.dies],
+  ['there are coins to collect',        out.coinCount > 15],
   ['swing holds the rope',              out.hook.stateLater === 'swinging' && out.hook.ropeLength > 1],
   ['never falls through the world',     out.fellThrough.below === 0],
   ['no console errors',                 errors.filter((e) => !/peggy\.glb|404/.test(e)).length === 0],

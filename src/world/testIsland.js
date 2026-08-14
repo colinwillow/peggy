@@ -16,6 +16,7 @@
 
 import * as THREE from '../../vendor/three/three.module.js';
 import { Level, BoxSolid, CylinderSolid } from './Level.js';
+import { Crab } from './Crab.js';
 import { toonMaterial, addOutline } from '../render/toon.js';
 import { PALETTE } from '../player/PeggyModel.js';
 import { rand, TAU } from '../core/math.js';
@@ -85,10 +86,51 @@ export function buildTestIsland(scene) {
 
   const g = (x, z) => level.terrainHeight(x, z);
 
+  /** A sea-stack pillar: rock column with a sandy walkable cap. */
+  function cylPillar(px, pz, R, bottom, top, rockMat, capMat) {
+    const h = top - bottom;
+    const centre = new THREE.Vector3(px, bottom + h / 2, pz);
+    level.addSolid(new CylinderSolid(centre, R, h / 2, 'pillar'));
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(R, R * 1.35, h, 10), rockMat);
+    m.position.copy(centre);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    props.add(m);
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(R * 1.02, R * 0.9, 0.22, 10), capMat);
+    cap.position.set(px, top - 0.05, pz);
+    cap.receiveShadow = true;
+    props.add(cap);
+  }
+
   /** Surface heights of the stair run, exported so tests can assert on them. */
   const stairTops = [];
   /** Props with an `openAnim(dt)` in userData — ticked every frame. */
   const animated = [];
+  /** Doubloons. main.js walks this for pickup; crabs burst into more of them. */
+  const coins = [];
+  const coinGeo = new THREE.CylinderGeometry(0.26, 0.26, 0.06, 14);
+  const coinMat = toonMaterial({ color: 0xf3c14b, rimStrength: 1.0, rimColor: 0xfff2c0 });
+
+  function addCoin(x, y, z) {
+    const c = new THREE.Mesh(coinGeo, coinMat);
+    c.position.set(x, y, z);
+    c.rotation.z = Math.PI / 2;           // stand it on edge, like a coin should
+    c.rotation.y = rand(0, TAU);
+    c.castShadow = true;
+    c.userData.coin = true;
+    c.userData.baseY = y;
+    const phase = rand(0, TAU);
+    c.userData.openAnim = (dt) => {
+      if (c.userData.collected) return;
+      c.rotation.y += 2.6 * dt;
+      c.userData.t = (c.userData.t || phase) + dt;
+      c.position.y = c.userData.baseY + Math.sin(c.userData.t * 2.2) * 0.12;
+    };
+    animated.push(c);
+    props.add(c);
+    coins.push(c);
+    return c;
+  }
 
   /** A visible ring where the hook can latch, so anchors are readable. */
   function anchor(x, y, z, kind = 'swing') {
@@ -369,10 +411,12 @@ export function buildTestIsland(scene) {
     loose.push(haulable);
   }
 
-  // ── the treasure chest, because it's a pirate game ───────────────────────
-  {
-    const cx = -46, cz = 52;
-    const base = g(cx, cz);
+  /**
+   * A treasure chest with a working lid: tap to open, the gold inside rises.
+   * Returns the group. When it opens, `onOpen` fires — the archipelago chest
+   * uses it to pay out real, collectable doubloons.
+   */
+  function buildChest(cx, baseY, cz, onOpen) {
     const chest = new THREE.Group();
     const bodyMesh = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.85, 1.0), woodDarkMat);
     bodyMesh.castShadow = true;
@@ -393,13 +437,9 @@ export function buildTestIsland(scene) {
     const lock = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.3, 0.12), goldMat);
     lock.position.set(0, 0.05, 0.52);
     chest.add(lock);
-    chest.position.set(cx, base + 0.45, cz);
+    chest.position.set(cx, baseY + 0.45, cz);
     props.add(chest);
-    // Only reachable by climbing the spire island — or by hooking your way up.
-    anchor(cx + 3, base + 6, cz + 2, 'swing');
 
-    // OPEN it. The lid hinges back and the gold inside is revealed — the whole
-    // point of a context action is that the world visibly answers the tap.
     const loot = new THREE.Group();
     for (let i = 0; i < 14; i++) {
       const coin = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.022, 10), goldMat);
@@ -412,9 +452,13 @@ export function buildTestIsland(scene) {
     chest.add(loot);
 
     level.addInteractable({
-      pos: new THREE.Vector3(cx, base + 0.9, cz),
+      pos: new THREE.Vector3(cx, baseY + 0.9, cz),
       radius: 2.8, icon: 'chest', label: 'OPEN',
-      onInteract: () => { chest.userData.opening = 1; loot.visible = true; },
+      onInteract: () => {
+        chest.userData.opening = 1;
+        loot.visible = true;
+        if (onOpen) onOpen();
+      },
     });
     chest.userData.openAnim = (dt) => {
       if (!chest.userData.opening) return;
@@ -422,6 +466,15 @@ export function buildTestIsland(scene) {
       loot.position.y = Math.min(loot.position.y + 0.5 * dt, 0.42);
     };
     animated.push(chest);
+    return chest;
+  }
+
+  // ── the spire chest: only reachable by climbing or hooking up ────────────
+  {
+    const cx = -46, cz = 52;
+    const base = g(cx, cz);
+    buildChest(cx, base, cz);
+    anchor(cx + 3, base + 6, cz + 2, 'swing');
   }
 
   // ── the shack: a door, because a door is the clearest context action ─────
@@ -429,7 +482,6 @@ export function buildTestIsland(scene) {
     const sx = 18, sz = 14;
     const base = g(sx, sz);
     box(sx, base, sz, 4.4, 3.0, 3.6, woodMat, 0.3);
-    // roof
     const roof = new THREE.Mesh(new THREE.ConeGeometry(3.6, 1.5, 4), woodDarkMat);
     roof.position.set(sx, base + 3.7, sz);
     roof.rotation.y = 0.3 + Math.PI / 4;
@@ -446,7 +498,6 @@ export function buildTestIsland(scene) {
     const knob = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), goldMat);
     knob.position.set(dw - 0.15, 0, 0.1);
     door.add(knob);
-    // sit it on the shack's front face, allowing for the 0.3 rad rotation
     const fx = Math.sin(0.3), fz = Math.cos(0.3);
     hinge.position.set(sx + fx * 1.85 - fz * (dw / 2), base + dh / 2, sz + fz * 1.85 + fx * (dw / 2));
     hinge.rotation.y = 0.3;
@@ -464,7 +515,7 @@ export function buildTestIsland(scene) {
     animated.push(hinge);
   }
 
-  // ── the ship's wheel on the wreck ────────────────────────────────────────
+  // ── the ship's wheel on the galleon ──────────────────────────────────────
   {
     const wx = 30, wz = 20;
     const base = g(wx, wz);
@@ -484,13 +535,12 @@ export function buildTestIsland(scene) {
     level.addInteractable({
       pos: wheel.position.clone(),
       radius: 2.4, icon: 'wheel', label: 'TAKE THE HELM', once: false,
-      onInteract: () => { wheel.userData.spin = (wheel.userData.spin || 0) + 9; },
+      onInteract: () => { wheel.userData.spin2 = (wheel.userData.spin2 || 0) + 9; },
     });
     wheel.userData.openAnim = (dt) => {
-      if (!wheel.userData.spin) return;
-      const s = wheel.userData.spin;
-      wheel.rotation.z += s * dt;
-      wheel.userData.spin = Math.abs(s) < 0.05 ? 0 : s * Math.pow(0.22, dt);
+      if (!wheel.userData.spin2) return;
+      wheel.rotation.z += wheel.userData.spin2 * dt;
+      wheel.userData.spin2 = Math.abs(wheel.userData.spin2) < 0.05 ? 0 : wheel.userData.spin2 * Math.pow(0.22, dt);
     };
     animated.push(wheel);
   }
@@ -612,6 +662,106 @@ export function buildTestIsland(scene) {
     }
   }
 
+  // ── THE ARCHIPELAGO: a stepping-stone hop course off the south beach ─────
+  // Gaps are tuned against the measured movement numbers, not guessed:
+  // a running jump covers 4.44m and run + double jump about 7m, so the course
+  // escalates walk-on -> easy -> running -> full-momentum -> double-jump, and
+  // the last gap is honestly impossible without the double. Pillar tops rise a
+  // little each step so falling short drops you in the sea, which in this game
+  // is a swim back rather than a punishment.
+  {
+    const R = 1.7;                       // pillar top radius
+    const rockMat = toonMaterial({ color: 0x93856f, rimStrength: 0.3 });
+    const capMat = toonMaterial({ color: 0xf6e7b2, rimStrength: 0.25 });
+    // [x, z, topHeight] — consecutive edge gaps: 2.6, 3.4, 4.2, 5.6
+    const steps = [
+      [-6.0, -52.0, 1.2],
+      [-5.2, -58.0, 1.6],
+      [-3.6, -64.8, 2.0],
+      [-1.4, -72.4, 2.4],
+      [1.6, -81.4, 2.6],
+    ];
+    let prev = null;
+    for (const [px, pz, top] of steps) {
+      // solid from below the sea to the top, so a short jump bonks the side
+      // and drops you in the water instead of clipping through
+      const bottom = -7;
+      cylPillar(px, pz, R, bottom, top, rockMat, capMat);
+      addCoin(px, top + 0.9, pz);
+      prev = [px, pz];
+    }
+
+    // The treasure islet at the end of both routes.
+    level.addIsland({ cx: 2, cz: -92, radius: 8.5, height: 3.6, plateau: 0.5, rough: 0.2 });
+    const ty = level.terrainHeight(2, -92);
+    // a ring of doubloons and the chest that earns the trip
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * TAU;
+      addCoin(2 + Math.cos(a) * 2.6, level.terrainHeight(2 + Math.cos(a) * 2.6, -92 + Math.sin(a) * 2.6) + 0.7, -92 + Math.sin(a) * 2.6);
+    }
+    buildChest(2, ty, -92, () => {
+      for (let i = 0; i < 10; i++) {
+        const a = (i / 10) * TAU;
+        addCoin(2 + Math.cos(a) * rand(1.2, 3.4), ty + 0.8, -92 + Math.sin(a) * rand(1.2, 3.4));
+      }
+    });
+  }
+
+  // ── THE MONKEY BARS: the hook route over the lagoon ──────────────────────
+  // A line of horizontal bars on pilings, running parallel to the hop course.
+  // Each is a BAR anchor — the hook latches wherever along it you threw, so
+  // you swing from your grab point like monkey bars, not from a fixed ring.
+  // Rhythm: swing, release at the top of the arc, hold mid-air, throw at the
+  // next. Coins hang under each gap to draw the arc you should be carving.
+  {
+    const barY = 6.4;
+    const bars = [
+      [6.5, -52], [8.0, -60], [9.0, -68], [9.5, -76], [8.5, -84],
+    ];
+    for (let i = 0; i < bars.length; i++) {
+      const [bx, bz] = bars[i];
+      // the bar: gold-capped, horizontal, athwart the direction of travel
+      const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 3.4, 8), woodDarkMat);
+      bar.position.set(bx, barY, bz);
+      bar.rotation.z = Math.PI / 2;
+      bar.castShadow = true;
+      props.add(bar);
+      for (const e of [-1.7, 1.7]) {
+        const cap = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6), goldMat);
+        cap.position.set(bx + e, barY, bz);
+        props.add(cap);
+      }
+      // pilings down into the sea, so the structure reads as built, not floating
+      for (const e of [-1.7, 1.7]) {
+        const pile = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.17, barY + 6, 7), woodMat);
+        pile.position.set(bx + e, (barY - 6) / 2, bz);
+        pile.castShadow = true;
+        props.add(pile);
+      }
+      const brace = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 3.4, 6), woodMat);
+      brace.position.set(bx, barY - 1.1, bz);
+      brace.rotation.z = Math.PI / 2;
+      props.add(brace);
+
+      level.addGrapplePoint(new THREE.Vector3(bx, barY, bz), {
+        kind: 'swing', axisX: 1, axisZ: 0, halfLen: 1.7,
+      });
+      // a coin at the bottom of the swing arc between this bar and the next
+      if (i < bars.length - 1) {
+        const [nx, nz] = bars[i + 1];
+        addCoin((bx + nx) / 2, barY - 3.6, (bz + nz) / 2);
+      }
+    }
+  }
+
+  // ── the crabs ────────────────────────────────────────────────────────────
+  const crabs = [];
+  for (const [cx, cz] of [[14, -2], [-16, 8], [24, 26], [6, -22]]) {
+    const crab = new Crab(level, cx, cz);
+    props.add(crab.root);
+    crabs.push(crab);
+  }
+
   // ── spawn point: on the beach, facing inland ────────────────────────────
   const spawn = new THREE.Vector3(4, 0, -34);
   spawn.y = level.terrainHeight(spawn.x, spawn.z) + 0.2;
@@ -661,5 +811,5 @@ export function buildTestIsland(scene) {
     h.spin.set((Math.random() - 0.5) * 12, 0, (Math.random() - 0.5) * 12);
   }
 
-  return { level, props, spawn, loose, stairTops, updateLoose, knock };
+  return { level, props, spawn, loose, stairTops, updateLoose, knock, coins, addCoin, crabs };
 }

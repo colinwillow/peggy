@@ -136,6 +136,15 @@ export class Hook {
     this.target = this.level.findGrapplePoint(
       this.head, this._dir, HOOK.range, HOOK.aimAssistCone
     );
+    // Bars resolve to a latch POINT on the segment; freeze it now, because the
+    // shared _latch scratch vector is rewritten by every aim-preview query.
+    if (this.target && this.target._latch) {
+      this.target = {
+        pos: this.target._latch.clone(),
+        kind: this.target.kind,
+        ring: this.target.ring,
+      };
+    }
     this.targetHaulable = this.target ? null : this._findHaulable(this.head, this._dir);
 
     this.aimOverride = null;   // consumed by this throw

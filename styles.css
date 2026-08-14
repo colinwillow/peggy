@@ -348,3 +348,13 @@ body.touch .legend-kbm { display: none; }
    having to describe it. */
 #hud-gesture { color: rgba(244, 230, 200, 0.45); min-width: 58px; text-align: center; }
 #hud-gesture.lit { color: #53d7c8; font-weight: 800; }
+
+/* ── GOLD COUNTER ──────────────────────────────────────────────────────── */
+#hud-gold-wrap { color: var(--gold); font-weight: 800; }
+#hud-gold { display: inline-block; }
+#hud-gold.pop { animation: goldpop 320ms cubic-bezier(.2,.9,.3,1.5); }
+@keyframes goldpop {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.6); }
+  100% { transform: scale(1); }
+}
