@@ -80,14 +80,25 @@ const gesture = (dist, ms, hold, jit = 0) => page.evaluate(async ({ dist, ms, ho
     window.dispatchEvent(mk('touchmove', x0 + dist * p + jx, y0 + jy));
     if (p >= 1) break;
   }
-  if (hold) await sleep(hold);
-  // A QUICK lift (hold <= 100ms) smears a couple of pixels on a real screen.
-  // Delivering that smear also keeps a jank-stretched tail from accumulating
-  // 200ms of dead stillness at full deflection — which is, to the classifier,
-  // a deliberate resting aim, and it would be right.
-  const lift = hold && hold <= 100 ? 2.5 : 0;
-  if (lift) window.dispatchEvent(mk('touchmove', x0 + dist + lift, y0));
-  window.dispatchEvent(mk('touchend', x0 + dist + lift, y0));
+  // A QUICK lift (hold <= 100ms) is not stillness — a decelerating thumb
+  // keeps smearing a couple of pixels until it leaves the glass. Deliver that
+  // micro-motion through the whole tail: without it, a jank-stretched tail
+  // accumulates 400ms of dead rest at full deflection, the aim-hold ENGAGES
+  // mid-gesture, and release (correctly, by the aim's own rules) throws the
+  // hook — failing the test's label for reasons that are pure scheduling.
+  if (hold && hold <= 100) {
+    const h0 = performance.now();
+    let wig = 0;
+    for (;;) {
+      await sleep(28);
+      if (performance.now() - h0 >= hold) break;
+      window.dispatchEvent(mk('touchmove', x0 + dist + (++wig % 2 ? 2.2 : -2.2), y0));
+    }
+    window.dispatchEvent(mk('touchmove', x0 + dist + 2.2, y0));
+  } else if (hold) {
+    await sleep(hold);
+  }
+  window.dispatchEvent(mk('touchend', x0 + dist + (hold && hold <= 100 ? 2.2 : 0), y0));
   // Buffered camera pixels are applied by the frame loop — wait for two real
   // frames before reading yaw, or a starved rAF makes a perfectly good pan
   // measure as a camera that never moved.

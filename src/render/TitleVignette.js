@@ -136,8 +136,8 @@ export class TitleVignette {
 
     // ── sun, up and out of the logo's way ─────────────────────────────────
     {
-      const halo = flat(new THREE.CircleGeometry(1.35, 40), C.sun, -6.4, 5.6, -43, { opacity: 0.35 });
-      const disc = flat(new THREE.CircleGeometry(0.95, 40), C.sun, -6.4, 5.6, -42);
+      const halo = flat(new THREE.CircleGeometry(1.1, 40), C.sun, -2.9, 5.1, -43, { opacity: 0.35 });
+      const disc = flat(new THREE.CircleGeometry(0.78, 40), C.sun, -2.9, 5.1, -42);
       scene.add(halo, disc);
       anim((dt, t) => { halo.scale.setScalar(1 + Math.sin(t * 0.8) * 0.05); });
     }
@@ -186,6 +186,11 @@ export class TitleVignette {
       [-2.2, 6, C.waveDeep, -0.26, 0.22],
     ]) {
       const wv = flat(waveStrip(34, STEPW, amp, 14), colr, 0, top, z);
+      // The foam line: a thin pale strip riding each crest. It's the single
+      // biggest "this was drawn" tell in the frame — a coloured band is a
+      // gradient; a band with a foam line is an illustration.
+      const foam = flat(waveStrip(34, STEPW, amp, amp * 0.5), 0xeafcf8, 0, 0.015, 0.02, { opacity: 0.6 });
+      wv.add(foam);
       scene.add(wv);
       anim((dt, t) => {
         wv.position.x = ((t * sp) % STEPW + STEPW) % STEPW - STEPW;
@@ -221,8 +226,8 @@ export class TitleVignette {
       ship.add(flat(sail(0.8, 0.85), C.sail, -0.55, 0.6, 0.01));
       // pennant
       ship.add(flat(new THREE.PlaneGeometry(0.3, 0.12), 0x1c2635, 0.62, 1.92, 0.01));
-      ship.position.set(4.6, 1.55, -18);
-      ship.scale.setScalar(1.15);
+      ship.position.set(3.4, 1.55, -18);
+      ship.scale.setScalar(0.95);
       scene.add(ship);
       anim((dt, t) => {
         ship.rotation.z = Math.sin(t * 0.6) * 0.035;
@@ -255,6 +260,40 @@ export class TitleVignette {
       cap.quadraticCurveTo(-0.95, 1.5, -1.7, 1.16);
       cap.closePath();
       scene.add(flat(cap, C.grass, 0, 0.06, 0.05));
+
+      // hand-drawn business: speckles in the sand, tufts in the grass,
+      // a starfish sunning itself
+      for (const [dx, dy, r] of [[-1.3, 0.55, 0.05], [-0.6, 0.3, 0.04], [0.9, 0.35, 0.05], [0.3, 0.6, 0.035], [-2.0, 0.1, 0.04]]) {
+        const sp = flat(new THREE.CircleGeometry(r, 8), C.sandEdge, dx, dy, 0.08);
+        sp.scale.y = 0.6;
+        scene.add(sp);
+      }
+      const tuft = (len) => {
+        const s = new THREE.Shape();
+        s.moveTo(-len * 0.16, 0);
+        s.quadraticCurveTo(-len * 0.05, len * 0.7, len * 0.14, len);
+        s.quadraticCurveTo(len * 0.08, len * 0.4, len * 0.16, 0);
+        s.closePath();
+        return s;
+      };
+      for (const [tx, ty, l, rot] of [[-1.35, 1.28, 0.3, 0.2], [1.35, 1.22, 0.26, -0.25], [0.6, 1.55, 0.24, -0.1]]) {
+        const tf = flat(tuft(l), C.leafDark, tx, ty, 0.06);
+        tf.rotation.z = rot;
+        scene.add(tf);
+      }
+      {
+        const star = new THREE.Shape();
+        for (let i = 0; i < 10; i++) {
+          const a = (i / 10) * TAU - Math.PI / 2;
+          const r = i % 2 ? 0.055 : 0.13;
+          const px2 = Math.cos(a) * r, py2 = Math.sin(a) * r;
+          if (i === 0) star.moveTo(px2, py2); else star.lineTo(px2, py2);
+        }
+        star.closePath();
+        const sf = flat(star, 0xe8875f, -2.35, 0.28, 0.1);
+        sf.rotation.z = 0.5;
+        scene.add(sf);
+      }
     }
 
     // ── the palm, leaning in from the left ────────────────────────────────
@@ -267,6 +306,13 @@ export class TitleVignette {
       trunk.quadraticCurveTo(0.28, 1.15, 0.2, 0);
       trunk.closePath();
       palm.add(flat(trunk, C.trunk, 0, 0, 0));
+      // chevron notches up the trunk — the shorthand every cartoon palm uses
+      for (const [nx, ny, nr, na] of [[0.02, 0.5, 0.1, 0.15], [0.16, 1.05, 0.1, 0.3], [0.38, 1.55, 0.09, 0.45]]) {
+        const notch = flat(new THREE.CircleGeometry(nr, 10, Math.PI + 0.4, Math.PI - 0.8), C.woodDark, nx, ny, 0.01, { opacity: 0.55 });
+        notch.rotation.z = na;
+        notch.scale.y = 0.5;
+        palm.add(notch);
+      }
       // fronds: fat teardrops fanned around the crown
       const frond = (len) => {
         const s = new THREE.Shape();
@@ -374,7 +420,17 @@ export class TitleVignette {
   /** Drop the loaded character model into the frame. */
   setCharacter(model) {
     this._char = model;
-    model.object3D.scale.setScalar(1.35);   // poster scale, not simulation scale
+    model.object3D.scale.setScalar(1.5);    // poster scale, not simulation scale
+    // The vignette is unlit vector art, so the character goes UNLIT too: her
+    // painted texture at full brightness, exactly like a printed cel. Toon
+    // shading here just read as "not illuminated" — the poster wants ink,
+    // not lighting. (The proxy fallback has no texture; it keeps its toon
+    // materials and the lights above exist for it.)
+    model.object3D.traverse((o) => {
+      if ((o.isMesh || o.isSkinnedMesh) && o.material && o.material.map) {
+        o.material = new THREE.MeshBasicMaterial({ map: o.material.map });
+      }
+    });
     this.scene.add(model.object3D);
   }
 
@@ -387,7 +443,7 @@ export class TitleVignette {
   resize(aspect) {
     // Frustum extents are RELATIVE TO THE CAMERA, which already sits at the
     // composition's centre height — so the box is symmetric around zero.
-    const MIN_W = 10.5, MIN_H = 8.6;
+    const MIN_W = 8.4, MIN_H = 7.2;
     let h = MIN_W / aspect;
     if (h < MIN_H) h = MIN_H;
     const w = h * aspect;

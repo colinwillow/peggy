@@ -101,12 +101,9 @@
 </div>
 
 <!-- ── TITLE ───────────────────────────────────────────────────────────
-     The logo floats over the live scene (screen blend: its black ground
-     vanishes, the glow adds). Behind it the game idles on the treasure islet
-     — her, the chest, a palm, open sea — until the first tap. -->
-<!-- The logo lives OUTSIDE the overlay, as a direct child of body: its
-     screen blend must reach the canvas, and any wrapping stacking context
-     (the fixed, fading #title) would isolate it to blending with nothing. -->
+     The logo is a processed alpha sticker (letters carved from the painting,
+     shadow baked in — see styles.css). Behind it the 2D cartoon vignette
+     renders in place of the world until the first tap. -->
 <img id="title-logo" src="images/title-logo.webp" alt="PEGGY">
 <div id="title" class="hidden">
   <div id="title-fade"></div>
@@ -116,7 +113,7 @@
 <!-- ── BOOT ────────────────────────────────────────────────────────────── -->
 <div id="boot">
   <div class="boot-inner">
-    <h1>PEGGY</h1>
+    <img class="boot-logo" src="images/title-logo.webp" alt="PEGGY">
     <div class="boot-skull">☠</div>
     <p>hoisting the colours…</p>
   </div>
