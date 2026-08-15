@@ -12,6 +12,8 @@
 
 import * as THREE from '../../vendor/three/three.module.js';
 
+const _UP = new THREE.Vector3(0, 1, 0);
+
 const T = {
   speed: 21,           // m/s at the muzzle
   lift: 2.2,           // small up-kick so level shots carry before falling
@@ -20,6 +22,8 @@ const T = {
   radius: 0.09,
   hitRadius: 0.62,     // vs a crab's centre
   power: 12,           // one shot pops one hp — same as a sword hit
+  bounces: 2,          // skips off the ground before the ball gives up
+  restitution: 0.55,   // energy kept per skip
 };
 
 const POOL = 10;
@@ -58,6 +62,7 @@ export class Cannon {
     b.vel.copy(dir).multiplyScalar(T.speed);
     b.vel.y += T.lift;
     b.life = T.life;
+    b.bounces = 0;
     b.m.visible = true;
     this.shots++;
   }
@@ -99,10 +104,26 @@ export class Cannon {
         }
       }
 
-      // terrain / solids
+      // terrain: SKIP off it, don't die into it. The aim is horizontal and
+      // the island is all hills — a ball that buried itself into the first
+      // upslope made shooting uphill impossible. Bouncing carries the shot up
+      // the terrain the way a cannonball actually would, and reads great.
       if (!dead) {
         const g = world.level.groundAt(p.x, p.z, Infinity, this._g || (this._g = {}));
-        if (p.y <= g.y + T.radius) { this._puff(p, 0xd9c9a0); dead = true; }
+        if (p.y <= g.y + T.radius) {
+          const speed = b.vel.length();
+          if (b.bounces < T.bounces && speed > 5) {
+            p.y = g.y + T.radius;
+            const n = g.normal || _UP;
+            const dot = b.vel.dot(n);
+            b.vel.addScaledVector(n, -2 * dot).multiplyScalar(T.restitution);
+            b.bounces++;
+            this._puff(p, 0xd9c9a0);
+          } else {
+            this._puff(p, 0xd9c9a0);
+            dead = true;
+          }
+        }
       }
       // the sea
       if (!dead) {
