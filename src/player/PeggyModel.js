@@ -739,7 +739,7 @@ export class RiggedPeggyModel {
       const bindH = o.geometry.boundingBox.getSize(new THREE.Vector3()).y || 1;
       const mat = new THREE.MeshBasicMaterial({ color: 0x1c1424, side: THREE.BackSide });
       mat.onBeforeCompile = (sh) => {
-        sh.uniforms.uOutline = { value: 0.02 * (bindH / target) };  // ~2cm of ink
+        sh.uniforms.uOutline = { value: 0.04 * (bindH / target) };  // ~4cm of ink — bold, it's a cartoon
         // Use the raw `normal` ATTRIBUTE (always declared), not objectNormal —
         // MeshBasicMaterial's vertex stage doesn't define objectNormal, and
         // the undefined read exploded the shell into confetti. Zero-length

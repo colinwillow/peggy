@@ -21,15 +21,15 @@ import { clamp, damp, dampAngle, wrapAngle, lerp, clamp01, smoothstep } from '..
 
 const CAM = {
   distance: 6.3,
-  height: 2.0,
-  lookHeight: 1.15,
+  height: 1.55,
+  lookHeight: 1.3,
 
   // FIXED TILT. The player rotates the camera around her but never tilts it.
   // That's the convention for this kind of third-person action game, and the
   // real payoff is that it frees the right stick's vertical axis — and with it
   // the whole right thumb — for melee / shoot / interact instead of spending it
   // on a pitch axis nobody asks for.
-  pitch: 0.30,           // ~17 degrees above her, looking down
+  pitch: 0.15,           // ~9 degrees — near-level, the world ahead not the ground
 
   yawRate: 2.9,          // radians/sec at full stick (gamepad / Q,E)
   swipeSens: 0.0075,     // radians per swiped pixel (touch / mouse)

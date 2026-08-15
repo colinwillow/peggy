@@ -265,6 +265,8 @@ async function boot() {
       follow.snapTo(peggy);
       title.active = false;
       document.body.classList.remove('titling');
+      const lg = document.getElementById('title-logo');
+      if (lg) lg.classList.remove('on');          // its 0.65s opacity fade runs now
       title.el.classList.add('gone');             // ...curtain (and logo) out
       // Free the vignette: its scene holds GPU buffers the game never uses.
       const v = title.vignette;
@@ -690,7 +692,14 @@ async function boot() {
   else { title.el.remove(); document.getElementById('title-logo').remove(); }
 
   document.getElementById('boot').classList.add('gone');
-  setTimeout(() => document.getElementById('boot').remove(), 600);
+  setTimeout(() => {
+    document.getElementById('boot').remove();
+    // The title's logo waits for the boot screen (which carries the same
+    // logo, centred) to be fully gone — otherwise "Peggy" shows twice,
+    // stacked, for the whole crossfade.
+    const logo = document.getElementById('title-logo');
+    if (logo) logo.classList.add('on');
+  }, 600);
 }
 
 boot().catch((err) => {

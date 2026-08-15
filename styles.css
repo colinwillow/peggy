@@ -398,7 +398,7 @@ body.touch .legend-kbm { display: none; }
   opacity: 0;
   transition: opacity 0.65s ease;
 }
-body.titling #title-logo { opacity: 1; }
+#title-logo.on { opacity: 1; }
 /* The dark curtain for the cut from the islet vignette to the spawn beach:
    fades in fast, the teleport happens behind it, everything fades back out. */
 #title-fade {
