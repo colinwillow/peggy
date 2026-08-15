@@ -209,6 +209,63 @@ async function boot() {
   let meleeSwing = null;   // the open strike window: { hit: Set, power }
   document.body.classList.toggle('touch', input.isTouch);
 
+  // ── title screen ─────────────────────────────────────────────────────────
+  // The game IS the title screen: she idles by the chest on the treasure
+  // islet — palm, doubloons, open sea — while the camera slowly orbits and
+  // the logo screen-blends over the live render. The first tap cuts, behind
+  // a fast dark fade, to the spawn beach and hands over the controls.
+  //
+  // While the title holds the screen the world keeps simulating but the
+  // PLAYER does not exist: the controller and hook are fed this inert input
+  // instead of the real one, so a stray touch can't jump her or throw the
+  // hook into the vignette.
+  const mkStillBtn = () => ({ down: false, pressed: false, released: false });
+  const title = {
+    active: false,
+    el: document.getElementById('title'),
+    look: { x: 0.085, y: 0, dxPx: 0 },  // slow orbit, via the normal camera path
+    input: {
+      move: { x: 0, y: 0, mag: 0 },
+      jump: mkStillBtn(), dive: mkStillBtn(), hook: mkStillBtn(), melee: mkStillBtn(),
+      meleeAngle: null,
+      hookAim: { active: false, x: 0, y: 0, mag: 0 },
+    },
+  };
+
+  function startTitle() {
+    title.active = true;
+    document.body.classList.add('titling');
+    title.el.classList.remove('hidden');
+    // Stage her south of the chest, facing it — which also faces the sun, so
+    // the opening frame catches her lit front, with the palm behind her.
+    const tx = 0.6, tz = -94.8;
+    peggy.teleport(tx, level.terrainHeight(tx, tz) + 0.3, tz);
+    peggy.facing = Math.atan2(2 - tx, -92 - tz);
+    follow.snapTo(peggy);
+    // Camera enters on the sun side, looking back at her, then orbits.
+    follow.targetYaw = follow.yaw = 0.9;
+  }
+
+  function endTitle() {
+    if (!title.active || title.leaving) return;
+    title.leaving = true;
+    title.el.classList.add('cutting');            // curtain in...
+    setTimeout(() => {
+      peggy.teleport(spawn.x, spawn.y, spawn.z);  // ...swap the stage...
+      follow.snapTo(peggy);
+      title.active = false;
+      document.body.classList.remove('titling');
+      title.el.classList.add('gone');             // ...curtain (and logo) out
+      setTimeout(() => {
+        title.el.remove();
+        const logo = document.getElementById('title-logo');
+        if (logo) logo.remove();                  // its own fade ran off .titling
+      }, 700);
+    }, 300);
+  }
+  addEventListener('pointerdown', endTitle, true);
+  addEventListener('keydown', endTitle, true);
+
   // ── frame state ──────────────────────────────────────────────────────────
   const _v = new THREE.Vector3();
   const _v2 = new THREE.Vector3();
@@ -223,7 +280,7 @@ async function boot() {
     // Interact and jump are the SAME tap. Resolve it here, before the
     // controller sees the press, and consume the edge when something is in
     // range — so a tap next to a chest opens the chest instead of hopping.
-    promptTarget = peggy.grounded && !hook.active
+    promptTarget = !title.active && peggy.grounded && !hook.active
       ? level.findInteractable(peggy.position, peggy.facing)
       : null;
     if (promptTarget && input.jump.pressed) {
@@ -250,7 +307,7 @@ async function boot() {
     // release frame — the stick zeroes on lift, so without the latch every
     // steered throw would revert to the camera heading at the last instant.
     // Hook clears it when it fires.
-    const aiming = input.hookAim.active;
+    const aiming = !title.active && input.hookAim.active;
     if (aiming && !wasAiming) aimRefYaw = follow.yaw;
     wasAiming = aiming;
     if (aiming && input.hookAim.mag > 0.30) {
@@ -265,10 +322,11 @@ async function boot() {
     }
     if (!aiming) peggy.faceLock = null;
 
-    peggy.update(dt, input.move, input, follow.yaw);
-    if (input.recentre.pressed) follow.recentre(peggy);
-    hook.update(dt, input, input.move);
-    follow.update(dt, peggy, input.look);
+    const drive = title.active ? title.input : input;
+    peggy.update(dt, drive.move, drive, follow.yaw);
+    if (!title.active && input.recentre.pressed) follow.recentre(peggy);
+    hook.update(dt, drive, drive.move);
+    follow.update(dt, peggy, title.active ? title.look : input.look);
 
     // ── aim arc + lock-on ──────────────────────────────────────────────────
     if (aiming && !hook.active) {
@@ -395,7 +453,7 @@ async function boot() {
     model.update(dt, peggy, {
       time,
       hookActive: hook.active,
-      hookCharge: input.hookCharge,
+      hookCharge: title.active ? 0 : input.hookCharge,
       faceLocked: peggy.faceLock != null,
     });
 
@@ -568,6 +626,12 @@ async function boot() {
   // Tuning a controller means changing a number and feeling it immediately.
   // Everything worth touching is reachable from the console.
   Object.assign(window, { THREE, scene, camera, renderer, peggy, hook, follow, level, water, input, model, loop, stairTops, QUALITY, coins, crabs });
+
+  // Automation (navigator.webdriver — Playwright, the test suite) skips the
+  // title entirely and lands straight in the game, as does ?notitle, so every
+  // existing test keeps meaning what it meant.
+  if (!navigator.webdriver && !/notitle/.test(location.search)) startTitle();
+  else { title.el.remove(); document.getElementById('title-logo').remove(); }
 
   document.getElementById('boot').classList.add('gone');
   setTimeout(() => document.getElementById('boot').remove(), 600);

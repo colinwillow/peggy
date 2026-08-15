@@ -328,12 +328,16 @@ export function buildTestIsland(scene) {
   }
 
   // ── palms and rocks, for shade and silhouette ────────────────────────────
+  // A function rather than a loop body, because the treasure islet wants one
+  // too — and the islet doesn't exist yet at this point in the build, so its
+  // palm is planted further down, after addIsland has raised the ground.
   const palmSpots = [
     [-22, -18], [-30, 4], [8, 26], [20, -22], [-8, -28], [34, -4], [-34, -30], [16, 12],
   ];
-  for (const [px, pz] of palmSpots) {
+  for (const [px, pz] of palmSpots) palm(px, pz);
+  function palm(px, pz) {
     const base = g(px, pz);
-    if (base < 1.2) continue;
+    if (base < 1.2) return;
     const lean = rand(-0.22, 0.22);
     const h = rand(4.5, 7.5);
     // Curved trunk: five stacked segments, each tipped a little further, so it
@@ -696,6 +700,10 @@ export function buildTestIsland(scene) {
     // The treasure islet at the end of both routes.
     level.addIsland({ cx: 2, cz: -92, radius: 8.5, height: 3.6, plateau: 0.5, rough: 0.2 });
     const ty = level.terrainHeight(2, -92);
+    // One palm for shade — and for the title screen, which frames this islet:
+    // chest, palm, water, her. Planted north-west of the chest so it reads as
+    // backdrop from the title camera instead of a trunk through the frame.
+    palm(-2.4, -90.6);
     // a ring of doubloons and the chest that earns the trip
     for (let i = 0; i < 8; i++) {
       const a = (i / 8) * TAU;

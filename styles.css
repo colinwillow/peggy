@@ -358,3 +358,68 @@ body.touch .legend-kbm { display: none; }
   40%  { transform: scale(1.6); }
   100% { transform: scale(1); }
 }
+
+/* ── TITLE SCREEN ──────────────────────────────────────────────────────────
+   The logo is additive light painted on black, composited with
+   mix-blend-mode:screen — black contributes nothing, the glow adds. For the
+   blend to reach the CANVAS the img must sit in the same stacking context as
+   it: a direct child of body, NOT inside #title, whose fixed/fading box is
+   its own stacking context and would isolate the blend into a black square.
+   (An alpha-channel bake was tried first: over a bright sea the soft halo
+   filled the letter counters and the whole mark blew out to a white blob.)
+   Nothing here eats input — the start tap is a window-level listener. */
+#title {
+  position: fixed; inset: 0; z-index: 60;
+  pointer-events: none;
+  transition: opacity 0.65s ease;
+  /* A dark scrim behind the logo: the glow was painted against night, and
+     over a bright noon sea the letters blow out without it. */
+  background: linear-gradient(180deg, rgba(5, 10, 18, 0.78), rgba(5, 10, 18, 0.42) 34%, rgba(5, 10, 18, 0) 58%);
+}
+#title.hidden { display: none; }
+#title.gone { opacity: 0; }
+#title-logo {
+  position: fixed; top: 1.5vh; left: 50%; z-index: 61;
+  transform: translateX(-50%);
+  /* Sized so the pink splat at the mark's foot stays clear of her — she
+     stands at frame centre, the camera being what it is. The glow halo is
+     part of the image and provides its own margins. */
+  width: min(88vw, 62vh, 560px);
+  mix-blend-mode: screen;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.65s ease;
+}
+body.titling #title-logo { opacity: 1; }
+/* The dark curtain for the cut from the islet vignette to the spawn beach:
+   fades in fast, the teleport happens behind it, everything fades back out. */
+#title-fade {
+  position: absolute; inset: 0;
+  background: #081221;
+  opacity: 0;
+  transition: opacity 0.28s ease;
+}
+#title.cutting #title-fade { opacity: 1; }
+#title-prompt {
+  position: absolute; left: 0; right: 0;
+  bottom: max(9vh, calc(env(safe-area-inset-bottom) + 7vh));
+  text-align: center;
+  color: #ffd98f;
+  font-size: clamp(15px, 2.6vh, 22px);
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.65);
+  animation: title-pulse 1.6s ease-in-out infinite;
+}
+@keyframes title-pulse {
+  50% { opacity: 0.3; }
+}
+/* While the title holds the screen, the game chrome does not exist. */
+body.titling #hud,
+body.titling #controls-legend,
+body.titling #reticle,
+body.titling #prompt,
+body.titling .stick-zone,
+body.titling .stick-ring,
+body.titling .stick-knob { display: none !important; }
