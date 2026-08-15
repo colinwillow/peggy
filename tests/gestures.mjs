@@ -71,6 +71,8 @@ const gesture = (dist, ms, hold, jit = 0) => page.evaluate(async ({ dist, ms, ho
   // classifier then, correctly, refuses to call a flick. A real screen under
   // load does what this version does: same duration, fewer, bigger deltas.
   const t0 = performance.now();
+  let lastEv = t0, maxGap = 0;
+  const mark = () => { const n = performance.now(); maxGap = Math.max(maxGap, n - lastEv); lastEv = n; };
   for (;;) {
     await sleep(8);
     const el = performance.now() - t0;
@@ -78,6 +80,7 @@ const gesture = (dist, ms, hold, jit = 0) => page.evaluate(async ({ dist, ms, ho
     const jx = jit ? Math.sin(el * 0.015) * jit : 0;
     const jy = jit ? Math.cos(el * 0.011) * jit : 0;
     window.dispatchEvent(mk('touchmove', x0 + dist * p + jx, y0 + jy));
+    mark();
     if (p >= 1) break;
   }
   // A QUICK lift (hold <= 100ms) is not stillness — a decelerating thumb
@@ -93,18 +96,22 @@ const gesture = (dist, ms, hold, jit = 0) => page.evaluate(async ({ dist, ms, ho
       await sleep(28);
       if (performance.now() - h0 >= hold) break;
       window.dispatchEvent(mk('touchmove', x0 + dist + (++wig % 2 ? 2.2 : -2.2), y0));
+      mark();
     }
     window.dispatchEvent(mk('touchmove', x0 + dist + 2.2, y0));
+    mark();
   } else if (hold) {
     await sleep(hold);
+    lastEv = performance.now();   // an intended rest is not a stall
   }
   window.dispatchEvent(mk('touchend', x0 + dist + (hold && hold <= 100 ? 2.2 : 0), y0));
+  mark();
   // Buffered camera pixels are applied by the frame loop — wait for two real
   // frames before reading yaw, or a starved rAF makes a perfectly good pan
   // measure as a camera that never moved.
   await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   await sleep(30);
-  return { ...window.__c, gest: window.input.stickR.lastGesture, yaw: window.follow.yaw - yaw0 };
+  return { ...window.__c, gest: window.input.stickR.lastGesture, yaw: window.follow.yaw - yaw0, maxGap: Math.round(maxGap) };
 }, { dist, ms, hold, jit });
 
 const reset = async () => {
@@ -139,17 +146,28 @@ const CASES = [
 const rows = [];
 let failed = 0;
 for (const [name, d, ms, hold, jit, want, cam] of CASES) {
-  await reset();
-  const r = await gesture(d, ms, hold, jit);
-  const verbOk = r.gest === want
-    && (want !== 'flick' || r.melee === 1)
-    && (want !== 'hook' || r.hook === 1)
-    && (want !== 'hold' || r.hook === 1)
-    && (want !== 'tap' || r.jump === 1)
-    && (want !== 'drag' || (r.melee === 0 && r.hook === 0 && r.jump === 0));
-  const camOk = cam === 'any'
-    || (cam === 'still' ? Math.abs(r.yaw) < 0.06 : Math.abs(r.yaw) > 0.05);
-  const ok = verbOk && camOk;
+  // The dispatcher measures its own worst gap between delivered events. If a
+  // case FAILS and the delivery stalled >150ms mid-gesture, the input the
+  // classifier saw was not the input the case describes (a real screen never
+  // pauses a moving thumb's events) — so the case re-runs instead of judging
+  // the classifier on a corrupted delivery. A case that fails with CLEAN
+  // delivery still fails: this only forgives the harness, never the game.
+  let r, verbOk, camOk, ok;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await reset();
+    r = await gesture(d, ms, hold, jit);
+    verbOk = r.gest === want
+      && (want !== 'flick' || r.melee === 1)
+      && (want !== 'hook' || r.hook === 1)
+      && (want !== 'hold' || r.hook === 1)
+      && (want !== 'tap' || r.jump === 1)
+      && (want !== 'drag' || (r.melee === 0 && r.hook === 0 && r.jump === 0));
+    camOk = cam === 'any'
+      || (cam === 'still' ? Math.abs(r.yaw) < 0.06 : Math.abs(r.yaw) > 0.05);
+    ok = verbOk && camOk;
+    if (ok || r.maxGap <= 150) break;
+    console.log(`  ....  ${name.padEnd(34)} re-run: delivery stalled ${r.maxGap}ms`);
+  }
   if (!ok) failed++;
   rows.push(`  ${ok ? 'PASS' : 'FAIL'}  ${name.padEnd(34)} got=${(r.gest || '-').padEnd(6)} `
     + `melee=${r.melee} hook=${r.hook} jump=${r.jump} cam=${r.yaw.toFixed(3)}  want=${want}/${cam}`);
