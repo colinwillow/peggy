@@ -17,6 +17,7 @@ import { buildAmbience } from './world/ambience.js';
 import { Peggy, State } from './player/Peggy.js';
 import { Hook, HookState } from './player/Hook.js';
 import { createPeggyModel } from './player/PeggyModel.js';
+import { TitleVignette } from './render/TitleVignette.js';
 import { FollowCamera } from './camera/FollowCamera.js';
 
 const SUN_DIR = new THREE.Vector3(38, 60, 26).normalize();
@@ -212,20 +213,22 @@ async function boot() {
   document.body.classList.toggle('touch', input.isTouch);
 
   // ── title screen ─────────────────────────────────────────────────────────
-  // The game IS the title screen: she idles by the chest on the treasure
-  // islet — palm, doubloons, open sea — while the camera slowly orbits and
-  // the logo screen-blends over the live render. The first tap cuts, behind
-  // a fast dark fade, to the spawn beach and hands over the controls.
+  // The title is a 2D cartoon: a flat, dead-level ORTHOGRAPHIC vignette
+  // (TitleVignette.js — caricature island, palm, chest, trader, gulls) with
+  // the real cel-shaded character idling in the middle of it, and the logo
+  // screen-blended over the top. No camera movement of any kind. The first
+  // tap cuts, behind a fast dark curtain, to the spawn beach.
   //
   // While the title holds the screen the world keeps simulating but the
   // PLAYER does not exist: the controller and hook are fed this inert input
   // instead of the real one, so a stray touch can't jump her or throw the
-  // hook into the vignette.
+  // hook mid-poster.
   const mkStillBtn = () => ({ down: false, pressed: false, released: false });
   const title = {
     active: false,
+    vignette: null,
     el: document.getElementById('title'),
-    look: { x: 0.085, y: 0, dxPx: 0 },  // slow orbit, via the normal camera path
+    look: { x: 0, y: 0, dxPx: 0 },
     input: {
       move: { x: 0, y: 0, mag: 0 },
       jump: mkStillBtn(), dive: mkStillBtn(), hook: mkStillBtn(), melee: mkStillBtn(),
@@ -238,14 +241,14 @@ async function boot() {
     title.active = true;
     document.body.classList.add('titling');
     title.el.classList.remove('hidden');
-    // Stage her south of the chest, facing it — which also faces the sun, so
-    // the opening frame catches her lit front, with the palm behind her.
-    const tx = 0.6, tz = -94.8;
-    peggy.teleport(tx, level.terrainHeight(tx, tz) + 0.3, tz);
-    peggy.facing = Math.atan2(2 - tx, -92 - tz);
-    follow.snapTo(peggy);
-    // Camera enters on the sun side, looking back at her, then orbits.
-    follow.targetYaw = follow.yaw = 0.9;
+    title.vignette = new TitleVignette();
+    title.vignette.resize(innerWidth / innerHeight);
+    // The vignette gets its own copy of the character (the game's copy can't
+    // be in two scenes). Second load hits the browser cache; until it lands
+    // the island simply doesn't have her yet.
+    createPeggyModel().then((m) => {
+      if (title.vignette) title.vignette.setCharacter(m);
+    });
   }
 
   function endTitle() {
@@ -258,6 +261,15 @@ async function boot() {
       title.active = false;
       document.body.classList.remove('titling');
       title.el.classList.add('gone');             // ...curtain (and logo) out
+      // Free the vignette: its scene holds GPU buffers the game never uses.
+      const v = title.vignette;
+      title.vignette = null;
+      if (v) {
+        v.scene.traverse((o) => {
+          if (o.geometry) o.geometry.dispose();
+          if (o.material && o.material.isMeshBasicMaterial) o.material.dispose();
+        });
+      }
       setTimeout(() => {
         title.el.remove();
         const logo = document.getElementById('title-logo');
@@ -460,6 +472,7 @@ async function boot() {
     });
 
     ambience.update(dt, time);
+    if (title.vignette) title.vignette.update(dt, time);
     water.update(dt, camera);
     sky.update(camera);
     // Shadow camera rides along, so shadows stay sharp instead of being spread
@@ -596,6 +609,12 @@ async function boot() {
 
   function render(alpha, frameTime) {
     fps = lerp(fps, 1 / Math.max(frameTime, 1e-4), 0.08);
+    // While the title holds the screen, the vignette is the only thing drawn —
+    // the world simulates but pays no render cost, depth prepass included.
+    if (title.active && title.vignette) {
+      renderer.render(title.vignette.scene, title.vignette.camera);
+      return;
+    }
     // Depth prepass without the water, for the shoreline foam.
     water.renderDepth(renderer, scene, camera);
     renderer.render(scene, camera);
@@ -612,6 +631,7 @@ async function boot() {
     renderer.setPixelRatio(Math.min(devicePixelRatio, QUALITY.pixelRatio));
     renderer.setSize(innerWidth, innerHeight);
     water.resize();
+    if (title.vignette) title.vignette.resize(innerWidth / innerHeight);
   }
   addEventListener('resize', () => {
     clearTimeout(resizeTimer);

@@ -374,7 +374,7 @@ body.touch .legend-kbm { display: none; }
   transition: opacity 0.65s ease;
   /* A dark scrim behind the logo: the glow was painted against night, and
      over a bright noon sea the letters blow out without it. */
-  background: linear-gradient(180deg, rgba(5, 10, 18, 0.78), rgba(5, 10, 18, 0.42) 34%, rgba(5, 10, 18, 0) 58%);
+  background: linear-gradient(180deg, rgba(5, 10, 18, 0.5), rgba(5, 10, 18, 0.2) 18%, rgba(5, 10, 18, 0) 34%);
 }
 #title.hidden { display: none; }
 #title.gone { opacity: 0; }
