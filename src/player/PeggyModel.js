@@ -686,6 +686,55 @@ export class RiggedPeggyModel {
     this.scene.position.z -= centre.z;
     this.scene.position.y -= box.min.y;
     if (opts.rotateY) this.scene.rotation.y = opts.rotateY;
+
+    // ── the ink line ──────────────────────────────────────────────────────
+    // An inverted-hull shell that RIDES THE SKELETON: same geometry, same
+    // bones, back faces only, pushed out along the normals in object space
+    // (before skinning, so the shell deforms with every clip). This is the
+    // single strongest "this is a drawing" cue on the character — the world's
+    // props already wear the same line.
+    this.root.updateMatrixWorld(true);
+    const shells = [];
+    this.scene.traverse((o) => {
+      if (!o.isSkinnedMesh && !o.isMesh) return;
+      // Recompute normals from the triangles — guaranteed-sane directions to
+      // displace along, whatever the export shipped.
+      o.geometry.computeVertexNormals();
+      // Thickness must be expressed in BIND space, and the mesh node's world
+      // scale is a lie for skinned meshes (the bones carry the real
+      // transform: node scale here reads 0.0128 while bind space is
+      // metre-ish). Derive the ratio from heights instead: she is bindH tall
+      // in bind space and `target` tall in the world, so world centimetres
+      // times bindH/target is bind-space centimetres. Getting this wrong is
+      // not subtle — 2cm at the node-scale guess displaced every vertex by
+      // 1.5 character-heights and detonated her into black confetti.
+      o.geometry.computeBoundingBox();
+      const bindH = o.geometry.boundingBox.getSize(new THREE.Vector3()).y || 1;
+      const mat = new THREE.MeshBasicMaterial({ color: 0x1c1424, side: THREE.BackSide });
+      mat.onBeforeCompile = (sh) => {
+        sh.uniforms.uOutline = { value: 0.02 * (bindH / target) };  // ~2cm of ink
+        // Use the raw `normal` ATTRIBUTE (always declared), not objectNormal —
+        // MeshBasicMaterial's vertex stage doesn't define objectNormal, and
+        // the undefined read exploded the shell into confetti. Zero-length
+        // normals (this is a machine-generated mesh) are guarded to no-ops.
+        sh.vertexShader = sh.vertexShader
+          .replace('#include <common>', '#include <common>\nuniform float uOutline;')
+          .replace('#include <begin_vertex>',
+            `#include <begin_vertex>
+             float _nl = length( normal );
+             if ( _nl > 0.0001 ) transformed += ( normal / _nl ) * uOutline;`);
+      };
+      // Clone the source mesh itself — clone() carries the full bind state
+      // (skeleton reference, bindMatrix, bindMode) that a hand-built
+      // SkinnedMesh gets subtly wrong.
+      const shell = o.clone();
+      shell.material = mat;
+      shell.frustumCulled = false;
+      shell.castShadow = false;
+      shell.receiveShadow = false;
+      shells.push([o, shell]);
+    });
+    for (const [src, shell] of shells) src.parent.add(shell);
   }
 
   _play(key, fadeHL, dt) {
@@ -797,12 +846,15 @@ export async function createPeggyModel() {
   const candidates = [
     { url: 'models/peggy.glb' },
     // Interim rigged character. Exported without any material, so the texture
-    // rides alongside and is bound here by hand. The file stores LINEAR pixel
-    // values (an sRGB->linear conversion got baked in on export): read as
-    // ordinary sRGB it averages 7/255 and the whole model renders near-black.
-    // Tagging it linear lets the output encode undo the baked conversion and
-    // the painted colours come back. Verified against an unlit A/B render.
-    { url: 'models/glorp_character.glb', texture: 'images/glorp_texture.webp', texLinear: true },
+    // rides alongside and is bound here by hand. The bound file is the CEL
+    // variant: the raw export (glorp_texture.webp, which stores LINEAR pixel
+    // values) decoded to display space, brightened, saturated, and quantised
+    // into flat tone regions — because the raw painting carries dark baked-in
+    // shading, and no amount of "render it unlit" makes dark pixels read as a
+    // bright 2D drawing. The pixels themselves had to change. Regenerate it
+    // from the raw file if the art updates, and BUMP THE FILENAME: cached
+    // phones never re-fetch a same-name asset.
+    { url: 'models/glorp_character.glb', texture: 'images/glorp_texture_cel-v1.webp' },
   ];
 
   const loader = new GLTFLoader();
