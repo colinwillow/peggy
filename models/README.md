@@ -38,10 +38,11 @@ metres-per-second exactly.
 names sort it out, or add a second loader path keyed on `peggy.inWater`. The
 controller already exposes that flag.
 
-**Materials.** Whatever comes in gets re-materialled to `toonMaterial()`,
-keeping the base colour and any `map`. So author flat colour or a single
-albedo atlas; PBR maps will be discarded. Ink outlines are generated from the
-geometry, so don't model them.
+**Materials.** A TEXTURED model renders UNLIT — the map at 100% luminance
+(`MeshBasicMaterial`), no lights, no reflections, no toon shading — so paint
+the shading you want INTO the texture; the goal is a 2D-drawn read. A model
+with flat colours and no texture gets `toonMaterial()` instead (flat colour
+needs some light to have form). PBR maps are discarded either way.
 
 
 ---

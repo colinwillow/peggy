@@ -607,18 +607,26 @@ export class RiggedPeggyModel {
       // at certain camera angles; the character is always on screen anyway.
       o.frustumCulled = false;
       const src = o.material;
-      o.material = toonMaterial({
-        color: src && src.color ? src.color.getHex() : 0xffffff,
-        map: opts.map || (src && src.map) || null,
-        // A painterly albedo carries its own lighting cues. The additive warm
-        // rim that flatters flat-colour props smears a tan glaze over it —
-        // keep only a whisper, for silhouette pop against the sky.
-        rimStrength: 0.18,
-        // A raised shade floor, for the same reason: the albedo is already
-        // dark where it should be dark, and the camera lives BEHIND her — on
-        // the standard bands the unlit back crushed to a black cutout.
-        gradientMap: characterGradient(),
-      });
+      const map = opts.map || (src && src.map) || null;
+      if (map) {
+        // THE TEXTURE IS THE LIGHT. A painterly texture already carries its
+        // own shading, so the character renders UNLIT — the map at 100%
+        // luminance, no lights, no rim, no reflections, no toon bands. This
+        // is what makes him read as a 2D drawing standing in the world
+        // instead of a lit 3D object wearing one: every earlier attempt to
+        // toon-light this texture just re-shaded a painting and read as
+        // "not illuminated". He still CASTS a shadow (that's per-mesh, not
+        // per-material), which keeps him planted on the ground.
+        o.material = new THREE.MeshBasicMaterial({ map });
+      } else {
+        // No texture (a flat-colour export): toon-shade it like the proxy —
+        // flat colours need SOME light to have form at all.
+        o.material = toonMaterial({
+          color: src && src.color ? src.color.getHex() : 0xffffff,
+          rimStrength: 0.18,
+          gradientMap: characterGradient(),
+        });
+      }
     });
 
     // ── clips ─────────────────────────────────────────────────────────────

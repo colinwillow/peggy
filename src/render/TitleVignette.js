@@ -510,7 +510,7 @@ export class TitleVignette {
     // not lighting. (The proxy fallback has no texture; it keeps its toon
     // materials and the lights above exist for it.)
     model.object3D.traverse((o) => {
-      if ((o.isMesh || o.isSkinnedMesh) && o.material && o.material.map) {
+      if ((o.isMesh || o.isSkinnedMesh) && o.material && o.material.map && !o.material.isMeshBasicMaterial) {
         o.material = new THREE.MeshBasicMaterial({ map: o.material.map });
       }
     });
