@@ -554,10 +554,22 @@ export class ProxyPeggyModel {
     this._squash = clamp(strength * 0.035, 0, 0.34);
   }
 
+  /** Cannonballs leave from the hook arm on the proxy. */
+  muzzleWorld(out) { return this.hook.getWorldPosition(out); }
+  kick() {}
+
   get object3D() { return this.root; }
 }
 
 // ── the real thing, when it exists ─────────────────────────────────────────
+
+// scratch for the procedural gun-arm pose
+const _aimDir = new THREE.Vector3();
+const _Y_AXIS = new THREE.Vector3(0, 1, 0);
+const _q1 = new THREE.Quaternion();
+const _q2 = new THREE.Quaternion();
+const _q3 = new THREE.Quaternion();
+const _m4 = new THREE.Matrix4();
 
 let _charGradient = null;
 function characterGradient() {
@@ -657,6 +669,21 @@ export class RiggedPeggyModel {
     this._airPhase = 'none';
     this._jumpClock = 0;
     this._prevVy = 0;
+
+    // ── the gun arm ───────────────────────────────────────────────────────
+    // Cached bones for the procedural point: while shooting, the left arm is
+    // posed OVER the animation (post-mixer) to aim down the facing.
+    this._boneArm = null;
+    this._boneFore = null;
+    this._boneHand = null;
+    this.scene.traverse((o) => {
+      if (!o.isBone) return;
+      if (/LeftArm$/.test(o.name)) this._boneArm = o;
+      else if (/LeftForeArm$/.test(o.name)) this._boneFore = o;
+      else if (/LeftHand$/.test(o.name)) this._boneHand = o;
+    });
+    this._shootBlend = 0;
+    this._kickT = 0;
 
     // ── auto-normalise ────────────────────────────────────────────────────
     // DCC exports arrive at arbitrary scales (this one: a 0.01 root from
@@ -807,7 +834,36 @@ export class RiggedPeggyModel {
     }
 
     this.mixer.update(dt);
+
+    // ── the procedural point ──────────────────────────────────────────────
+    // While the trigger is down, the left arm is posed AFTER the mixer: both
+    // arm bones are slerped toward "bone +Y along the facing", which
+    // straightens the arm out level at whatever the clips were doing with it.
+    // Recoil rides the same path as a brief upward re-aim.
+    this._shootBlend = damp(this._shootBlend, ctx.shooting ? 1 : 0, 0.055, dt);
+    this._kickT = Math.max(0, this._kickT - dt * 5);
+    if (this._shootBlend > 0.02 && this._boneArm) {
+      const up = 0.10 + this._kickT * 0.55;
+      _aimDir.set(Math.sin(peggy.facing), up, Math.cos(peggy.facing)).normalize();
+      for (const b of [this._boneArm, this._boneFore]) {
+        if (!b) continue;
+        b.parent.updateWorldMatrix(true, false);
+        _q1.setFromRotationMatrix(_m4.extractRotation(b.parent.matrixWorld));
+        _q2.setFromUnitVectors(_Y_AXIS, _aimDir);
+        _q3.copy(_q1).invert().multiply(_q2);
+        b.quaternion.slerp(_q3, this._shootBlend);
+      }
+    }
   }
+
+  /** Where cannonballs come from: her left hand, or her chest if boneless. */
+  muzzleWorld(out) {
+    if (this._boneHand) return this._boneHand.getWorldPosition(out);
+    return out.copy(this.root.position).add(_aimDir.set(0, 1.0, 0));
+  }
+
+  /** Recoil, called on each shot. */
+  kick() { this._kickT = 1; }
 
   /**
    * Which grounded moving clip? Free running faces her travel, so it's just

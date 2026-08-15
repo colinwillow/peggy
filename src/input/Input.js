@@ -31,8 +31,10 @@
 //   recentre  tap LEFT stick           / R      / L3
 //   dive      flick LEFT stick down    / C      / B
 //   jump      tap RIGHT stick          / Space  / A
-//   melee     flick RIGHT stick        / LMB    / X      — hook swipe
-//   hook      hold RIGHT stick, release / F     / RT     — throw the grapple
+//   melee     flick RIGHT stick        / RMB, V / X      — cutlass swipe
+//   shoot     PUSH RIGHT stick         / hold LMB / RT   — she turns, camera
+//             follows, cannon fires that way while held
+//   hook      F (keyboard only, for now — being redesigned off the stick)
 
 import { Joystick } from './Joystick.js';
 import { clamp } from '../core/math.js';
@@ -63,8 +65,10 @@ export class Input {
     this.meleeAngle = 0;
     /** 0..1 while the hook is being charged, for the reticle. */
     this.hookCharge = 0;
-    /** Aim-hold state: while active, the right stick steers the throw. */
+    /** Aim-hold state — dormant on touch while the hook is off the stick. */
     this.hookAim = { active: false, x: 0, y: 0, mag: 0 };
+    /** The trigger: while active, she faces (x,y) screen-space and fires. */
+    this.shoot = { active: false, x: 0, y: -1, mag: 1 };
 
     /** Which source produced the most recent input — used to swap the HUD. */
     this.lastSource = 'touch';
@@ -73,7 +77,7 @@ export class Input {
       || ('ontouchstart' in window && navigator.maxTouchPoints > 0);
 
     this._keys = Object.create(null);
-    this._mouse = { down: false, dx: 0, dy: 0, locked: false };
+    this._mouse = { down: false, right: false, dx: 0, dy: 0, locked: false };
 
     this._initTouch(dom);
     this._initKeyboard();
@@ -83,7 +87,7 @@ export class Input {
   // ── touch ────────────────────────────────────────────────────────────────
   _initTouch(dom) {
     this.stickL = new Joystick(dom.zoneL, dom.knobL, dom.ringL, { floating: true });
-    this.stickR = new Joystick(dom.zoneR, dom.knobR, dom.ringR, { floating: true });
+    this.stickR = new Joystick(dom.zoneR, dom.knobR, dom.ringR, { floating: true, shootStick: true });
 
     // LEFT — locomotion, plus the two verbs that aren't combat.
     this.stickL.onTap = () => { this.recentre.tap(); this.lastSource = 'touch'; };
@@ -132,9 +136,13 @@ export class Input {
       if (this.isTouch) return;
       this.lastSource = 'kbm';
       if (e.button === 0) this._mouse.down = true;
+      if (e.button === 2) this._mouse.right = true;
       if (!this._mouse.locked && canvas.requestPointerLock) canvas.requestPointerLock();
     });
-    addEventListener('mouseup', (e) => { if (e.button === 0) this._mouse.down = false; });
+    addEventListener('mouseup', (e) => {
+      if (e.button === 0) this._mouse.down = false;
+      if (e.button === 2) this._mouse.right = false;
+    });
     addEventListener('mousemove', (e) => {
       if (this.isTouch || !this._mouse.locked) return;
       this._mouse.dx += e.movementX;
@@ -184,6 +192,10 @@ export class Input {
     this.hookAim.x = this.stickR.x;
     this.hookAim.y = this.stickR.y;
     this.hookAim.mag = this.stickR.mag;
+    // The trigger. Touch aims with the stick vector; kbm and pad fire along
+    // the camera (their aiming IS the camera).
+    let shooting = this.stickR.shootActive;
+    let shootX = this.stickR.x, shootY = this.stickR.y;
 
     // keyboard
     const k = this._keys;
@@ -205,7 +217,9 @@ export class Input {
       dxPx += this._mouse.dx * 0.45;
     }
     this._mouse.dx = 0; this._mouse.dy = 0;
-    melee = melee || this._mouse.down;   // click = melee, matching flick-right
+    // hold left mouse = fire along the camera; melee moved to V / right-click
+    if (this._mouse.down) { shooting = true; shootX = 0; shootY = -1; }
+    melee = melee || this._mouse.right;
 
     // gamepad
     const gp = this._pollGamepad();
@@ -220,7 +234,8 @@ export class Input {
       if (btn(0)) { jump = true; this.lastSource = 'pad'; }
       if (btn(1)) dive = true;
       if (btn(2)) { melee = true; this.lastSource = 'pad'; }        // X
-      if (btn(7) || btn(5)) { hook = true; this.lastSource = 'pad'; }
+      if (btn(7)) { shooting = true; shootX = 0; shootY = -1; this.lastSource = 'pad'; } // RT
+      if (btn(5)) { hook = true; this.lastSource = 'pad'; }         // RB keeps the hook
       if (btn(10)) recentre = true;   // L3
       if (btn(9)) pause = true;
     }
@@ -234,6 +249,14 @@ export class Input {
     this.move.x = mx; this.move.y = my; this.move.mag = Math.min(mMag, 1);
     this.look.x = lx; this.look.y = ly; this.look.mag = Math.min(lMag, 1);
     this.look.dxPx = dxPx;
+
+    this.shoot.active = shooting;
+    if (shooting) {
+      const sm = Math.hypot(shootX, shootY);
+      this.shoot.x = sm > 0.001 ? shootX / sm : 0;
+      this.shoot.y = sm > 0.001 ? shootY / sm : -1;
+      this.shoot.mag = 1;
+    }
 
     this.jump.set(jump);
     this.hook.set(hook);

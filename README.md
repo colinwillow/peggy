@@ -46,12 +46,13 @@ you're on.
 | | Touch | Keyboard / mouse | Gamepad |
 |---|---|---|---|
 | Move | left stick | `WASD` | left stick |
-| Turn camera | right stick, **horizontal only** | mouse X, or `Q`/`E` | right stick X |
+| **Shoot** | **push** right stick — she turns, camera follows, cannon fires while held | hold click | RT |
 | Centre camera | **tap** left stick | `R` | L3 |
+| Turn camera | (the aim owns it — push to look) | mouse X, or `Q`/`E` | right stick X |
 | Dive | **flick** left stick down | `C` | B |
 | Jump / **Interact** | **tap** right stick — tap again in the air to **double jump** | `Space` | A |
-| Melee combo | **flick** right stick — chain three: forehand, backhand, spin | click, or `V` | X |
-| Hook / **look** | **hold** right stick — she faces the held direction, camera follows; release throws | `F` | RT |
+| Melee combo | **flick** right stick — chain three: forehand, backhand, spin | right-click, or `V` | X |
+| Hook | *off the stick while it's redesigned* | `F` | RB |
 
 ### The four gestures
 
@@ -61,9 +62,12 @@ by deflection over time:
 | Gesture | Motion | Verb |
 |---|---|---|
 | **tap** | down, barely moves, up fast | jump (again in the air: double jump) |
-| **hold** | down and REST — deflected or not | look + aim the hook that way; release throws |
+| **push** | out past the trigger zone, held | SHOOT — she turns there, the camera swings behind, the cannon fires while held |
 | **flick** | snapped out and released/rebounded | melee — chain three for the combo |
-| **swipe** | travelling | pan the camera |
+
+(The swipe-camera and the stick-hold hook described below are retired from
+touch in this revision — the right stick is the shoot stick, Robits-style,
+and the hook is being redesigned onto a different input.)
 
 **The camera is swipe-based**, not deflection-based: it pans while the thumb
 MOVES and stops when the thumb stops. That is what makes "press and hold in a

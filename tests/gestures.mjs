@@ -62,6 +62,7 @@ const gesture = (dist, ms, hold, jit = 0) => page.evaluate(async ({ dist, ms, ho
   const sleep = (m) => new Promise((r) => setTimeout(r, m));
   const x0 = 650, y0 = 200;
   window.__c = { melee: 0, hook: 0, jump: 0 };
+  const shots0 = window.cannon.shots;
   const yaw0 = window.follow.yaw;
 
   zone.dispatchEvent(mk('touchstart', x0, y0));
@@ -111,7 +112,7 @@ const gesture = (dist, ms, hold, jit = 0) => page.evaluate(async ({ dist, ms, ho
   // measure as a camera that never moved.
   await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   await sleep(30);
-  return { ...window.__c, gest: window.input.stickR.lastGesture, yaw: window.follow.yaw - yaw0, maxGap: Math.round(maxGap) };
+  return { ...window.__c, shots: window.cannon.shots - shots0, gest: window.input.stickR.lastGesture, yaw: window.follow.yaw - yaw0, maxGap: Math.round(maxGap) };
 }, { dist, ms, hold, jit });
 
 const reset = async () => {
@@ -123,23 +124,21 @@ const reset = async () => {
   await page.waitForTimeout(420);
 };
 
-// The camera is swipe-based and the aim-hold works DEFLECTED (press and hold
-// in a direction, release to launch — the requested gesture). That redraws the
-// map: fast sustained travel is a pan; a push that then RESTS is an aim, no
-// matter how far out it sits; a snap-and-release or snap-and-rebound is the
-// flick. Slow creeps that settle are aims too — that's a feature, not a
-// misdetection: the arc appears the moment the hold engages, so the player
-// sees what release will do.
+// THE SHOOT STICK. Push = the trigger: she turns, the camera swings behind
+// the aim, the cannon fires while held. A snap that releases fast is still
+// the melee flick — the trigger waits out the flick-candidate window, so a
+// flick never fires a stray round. A rest at centre is nothing at all now
+// (the aim-hold verb moved off this stick with the hook), and the camera
+// only moves when the TRIGGER is down — flicks and taps must leave it still.
 //                name                          px   ms  hold  jit   expect  camera-must
 const CASES = [
   ['fast flick    90px /  70ms',                90,   70,   0,  0, 'flick', 'still'],
   ['human flick  110px / 110ms',               110,  110,   0,  0, 'flick', 'still'],
   ['lazy flick   130px / 170ms',               130,  170,   0,  0, 'flick', 'still'],
-  ['fast pan     260px / 320ms, quick lift',   260,  320,  60,  0, 'drag',  'moved'],
-  ['long pan     300px / 500ms, quick lift',   300,  500,  40,  0, 'drag',  'moved'],
-  ['push out + REST + release = aim-throw',    110,  400, 320,  0, 'hold',  'any'],
-  ['hold still   600ms, 6px wobble',             0,  200, 400,  6, 'hold',  'still'],
-  ['hold sloppy  700ms, 12px wobble',            0,  250, 450, 12, 'hold',  'still'],
+  ['deliberate push + hold = fire',            110,  400, 500,  0, 'shoot', 'moved'],
+  ['snap out + hold = fire, no melee',         120,   80, 550,  0, 'shoot', 'moved'],
+  ['steered fire: push, then travel',          200,  700, 350,  0, 'shoot', 'moved'],
+  ['hold centre 600ms is nothing now',           0,  200, 400,  6, 'drag',  'still'],
   ['tap          40ms, no travel',               0,   40,   0,  0, 'tap',   'still'],
 ];
 
@@ -157,11 +156,10 @@ for (const [name, d, ms, hold, jit, want, cam] of CASES) {
     await reset();
     r = await gesture(d, ms, hold, jit);
     verbOk = r.gest === want
-      && (want !== 'flick' || r.melee === 1)
-      && (want !== 'hook' || r.hook === 1)
-      && (want !== 'hold' || r.hook === 1)
-      && (want !== 'tap' || r.jump === 1)
-      && (want !== 'drag' || (r.melee === 0 && r.hook === 0 && r.jump === 0));
+      && (want !== 'flick' || (r.melee === 1 && r.shots === 0))
+      && (want !== 'shoot' || (r.shots >= 1 && r.melee === 0 && r.hook === 0))
+      && (want !== 'tap' || (r.jump === 1 && r.shots === 0))
+      && (want !== 'drag' || (r.melee === 0 && r.hook === 0 && r.jump === 0 && r.shots === 0));
     camOk = cam === 'any'
       || (cam === 'still' ? Math.abs(r.yaw) < 0.06 : Math.abs(r.yaw) > 0.05);
     ok = verbOk && camOk;
@@ -170,7 +168,7 @@ for (const [name, d, ms, hold, jit, want, cam] of CASES) {
   }
   if (!ok) failed++;
   rows.push(`  ${ok ? 'PASS' : 'FAIL'}  ${name.padEnd(34)} got=${(r.gest || '-').padEnd(6)} `
-    + `melee=${r.melee} hook=${r.hook} jump=${r.jump} cam=${r.yaw.toFixed(3)}  want=${want}/${cam}`);
+    + `melee=${r.melee} shots=${r.shots} jump=${r.jump} cam=${r.yaw.toFixed(3)}  want=${want}/${cam}`);
 }
 
 await browser.close();

@@ -81,6 +81,18 @@ const CAND_REBOUND = 0.12;   // deflection fallback from peak that fires the fli
 const SWIPE_BUFFER_MS = 110; // deltas buffered at touch start, pending a verdict
 const AIM_STILL_MS = 200;    // this long without above-slop movement
 
+// ── SHOOT MODE (opts.shootStick) ───────────────────────────────────────────
+// The Robits model: the right stick IS the gun. Push it any direction and the
+// character turns there, the camera swings behind, and the cannon fires —
+// hold to keep firing, steer while held, let it spring back to stop. Tap and
+// flick keep their verbs (jump, melee); the swipe-camera and the aim-hold
+// give their thumb-territory to the trigger. A fast snap still becomes a
+// flick candidate first, so a melee flick never fires a stray shot — the
+// trigger engages only once the candidate window has passed (or immediately
+// on a deliberate, non-snap push).
+const SHOOT_ZONE = 0.40;     // deflection that pulls the trigger
+const SHOOT_RELEASE = 0.26;  // spring back inside this to stop firing
+
 export class Joystick {
   /**
    * @param {HTMLElement} zone  the touch region (a big invisible half-screen in floating mode)
@@ -100,6 +112,12 @@ export class Joystick {
     this.floating = opts.floating !== false;
     this.radius = opts.radius ?? 64;      // px of travel for full deflection
     this.deadzone = opts.deadzone ?? 8;   // px before any output at all
+
+    /** SHOOT MODE — see the constant block above. */
+    this.shootMode = !!opts.shootStick;
+    /** True while the trigger is pulled (deflected past SHOOT_ZONE). */
+    this.shootActive = false;
+    this._shotThisTouch = false;
 
     this.touchId = null;
     this.centreX = 0;
@@ -231,6 +249,8 @@ export class Joystick {
     this._tapPeak = 0;
     this._flicked = false;
     this.holdCharge = 0;
+    this.shootActive = false;
+    this._shotThisTouch = false;
     if (this.onPress) this.onPress();
     this._apply(t.clientX, t.clientY);
   }
@@ -283,7 +303,9 @@ export class Joystick {
       // below: anything that changes what a release MEANS gets re-derived at
       // the release itself.
       const now = performance.now();
-      const wasHold = !this._flickedThisTouch && (
+      // In shoot mode the deflected-rest posture belongs to the trigger, so
+      // the hold verb does not exist on this stick.
+      const wasHold = !this.shootMode && !this._flickedThisTouch && (
         this.aimActive
         || (held >= HOLD_MIN_MS && now - this._stillSince >= AIM_STILL_MS
             && !(this._cand && now - this._cand.t <= CAND_TIMEOUT_MS))
@@ -314,9 +336,14 @@ export class Joystick {
 
       this.holdCharge = 0;
       this.aimActive = false;
-      this.lastGesture = wasTap ? 'tap' : wasHold ? 'hold'
+      const wasShoot = this._shotThisTouch;
+      this.shootActive = false;
+      this._shotThisTouch = false;
+      this.lastGesture = wasShoot ? 'shoot' : wasTap ? 'tap' : wasHold ? 'hold'
         : (this._flickedThisTouch || wasSnapFlick) ? 'flick' : 'drag';
       if (this.onRelease) this.onRelease();
+      // A touch that fired the cannon spends its release on that — no verb.
+      if (wasShoot) break;
       if (wasTap && this.onTap) this.onTap();
       else if (wasHold && this.onHoldRelease) this.onHoldRelease();
       else if (wasSnapFlick) this._fireFlick();
@@ -413,6 +440,27 @@ export class Joystick {
    */
   poll() {
     const now = performance.now();
+
+    // ── shoot mode: the trigger replaces both the aim-hold and the swipe ──
+    if (this.shootMode) {
+      if (this._cand && now - this._cand.t > CAND_TIMEOUT_MS) this._cand = null;
+      if (!this.held) {
+        this.shootActive = false;
+        return 0;
+      }
+      if (this.shootActive) {
+        // Spring back toward centre (or a melee flick) lets go of the trigger.
+        if (this.mag < SHOOT_RELEASE || this._flickedThisTouch) this.shootActive = false;
+      } else if (!this._flickedThisTouch && !this.muted && !this._cand
+          && this.mag >= SHOOT_ZONE) {
+        // No open flick candidate: a deliberate push engages INSTANTLY; a
+        // snapped push engages when its candidate window expires unresolved.
+        this.shootActive = true;
+        this._shotThisTouch = true;
+        this.lastGesture = 'shoot';
+      }
+      return 0;   // this stick never pans the camera — the aim owns it
+    }
 
     if (!this.held) {
       // flush anything a just-released pan left behind

@@ -17,6 +17,7 @@ import { buildAmbience } from './world/ambience.js';
 import { Peggy, State } from './player/Peggy.js';
 import { Hook, HookState } from './player/Hook.js';
 import { createPeggyModel } from './player/PeggyModel.js';
+import { Cannon } from './player/Cannon.js';
 import { TitleVignette } from './render/TitleVignette.js';
 import { FollowCamera } from './camera/FollowCamera.js';
 
@@ -69,6 +70,7 @@ async function boot() {
 
   const { level, props, spawn, loose, stairTops, updateLoose, knock, coins, addCoin, crabs } = buildTestIsland(scene);
   const ambience = buildAmbience(scene, water);
+  const cannon = new Cannon(scene);
 
   const terrainMat = toonMaterial({
     color: 0xffffff,
@@ -178,6 +180,9 @@ async function boot() {
   const aimVec = new THREE.Vector3();
   let aimRefYaw = 0;       // camera yaw frozen at the frame the aim-hold engaged
   let wasAiming = false;
+  let shootRefYaw = 0;     // same idea, for the trigger
+  let wasShooting = false;
+  let shootCd = 0;
 
   // ── input + hud ──────────────────────────────────────────────────────────
   const dom = {
@@ -334,7 +339,33 @@ async function boot() {
     } else if (!aiming && !input.hook.pressed && !hook.active) {
       hook.aimOverride = null;
     }
-    if (!aiming) peggy.faceLock = null;
+
+    // ── the trigger ────────────────────────────────────────────────────────
+    // Push the right stick and three things happen at once, immediately: she
+    // faces the pushed direction, the camera starts swinging around behind
+    // it, and the hand cannon fires — first round instantly, then on a
+    // cadence while held. Same frozen-reference-yaw trick as the aim-hold:
+    // read the live camera and the chasing camera re-aims the stick forever.
+    const shooting = !title.active && input.shoot.active && !hook.active;
+    if (shooting && !wasShooting) { shootRefYaw = follow.yaw; shootCd = 0; }
+    wasShooting = shooting;
+    if (shooting) {
+      const c = Math.cos(shootRefYaw), sn = Math.sin(shootRefYaw);
+      const sx = input.shoot.x, sy = -input.shoot.y;
+      aimVec.set(sx * c - sy * sn, 0, -sx * sn - sy * c).normalize();
+      peggy.faceLock = Math.atan2(aimVec.x, aimVec.z);
+      follow.attract(peggy.faceLock);
+      shootCd -= dt;
+      if (shootCd <= 0 && !peggy.inWater) {
+        shootCd = 0.34;
+        if (model.muzzleWorld) model.muzzleWorld(_v);
+        else _v.set(peggy.position.x, peggy.position.y + 1.0, peggy.position.z);
+        cannon.fire(_v, aimVec);
+        if (model.kick) model.kick();
+        follow.addTrauma(0.045);
+      }
+    }
+    if (!aiming && !shooting) peggy.faceLock = null;
 
     const drive = title.active ? title.input : input;
     peggy.update(dt, drive.move, drive, follow.yaw);
@@ -469,9 +500,11 @@ async function boot() {
       hookActive: hook.active,
       hookCharge: title.active ? 0 : input.hookCharge,
       faceLocked: peggy.faceLock != null,
+      shooting,
     });
 
     ambience.update(dt, time);
+    cannon.update(dt, { level, water, crabs });
     if (title.vignette) title.vignette.update(dt, time);
     water.update(dt, camera);
     sky.update(camera);
@@ -648,7 +681,7 @@ async function boot() {
   // ── dev handles ──────────────────────────────────────────────────────────
   // Tuning a controller means changing a number and feeling it immediately.
   // Everything worth touching is reachable from the console.
-  Object.assign(window, { THREE, scene, camera, renderer, peggy, hook, follow, level, water, input, model, loop, stairTops, QUALITY, coins, crabs });
+  Object.assign(window, { THREE, scene, camera, renderer, peggy, hook, follow, level, water, input, model, loop, stairTops, QUALITY, coins, crabs, cannon });
 
   // Automation (navigator.webdriver — Playwright, the test suite) skips the
   // title entirely and lands straight in the game, as does ?notitle, so every
