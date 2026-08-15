@@ -13,6 +13,7 @@ import { setupLights, toonMaterial } from './render/toon.js';
 import { Sky } from './render/sky.js';
 import { Water } from './render/water.js';
 import { buildTestIsland } from './world/testIsland.js';
+import { buildAmbience } from './world/ambience.js';
 import { Peggy, State } from './player/Peggy.js';
 import { Hook, HookState } from './player/Hook.js';
 import { createPeggyModel } from './player/PeggyModel.js';
@@ -66,6 +67,7 @@ async function boot() {
   });
 
   const { level, props, spawn, loose, stairTops, updateLoose, knock, coins, addCoin, crabs } = buildTestIsland(scene);
+  const ambience = buildAmbience(scene, water);
 
   const terrainMat = toonMaterial({
     color: 0xffffff,
@@ -457,6 +459,7 @@ async function boot() {
       faceLocked: peggy.faceLock != null,
     });
 
+    ambience.update(dt, time);
     water.update(dt, camera);
     sky.update(camera);
     // Shadow camera rides along, so shadows stay sharp instead of being spread

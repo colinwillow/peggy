@@ -61,21 +61,38 @@ const gesture = (dist, ms, hold, jit = 0) => page.evaluate(async ({ dist, ms, ho
   };
   const sleep = (m) => new Promise((r) => setTimeout(r, m));
   const x0 = 650, y0 = 200;
-  const steps = Math.max(1, Math.round(ms / 8));   // ~120Hz, like a real screen
   window.__c = { melee: 0, hook: 0, jump: 0 };
   const yaw0 = window.follow.yaw;
 
   zone.dispatchEvent(mk('touchstart', x0, y0));
-  for (let i = 1; i <= steps; i++) {
+  // Drive the travel by WALL CLOCK, not by a fixed step count. On a starved
+  // main thread (SwiftShader in CI) per-step sleeps stretch, and a
+  // step-counted "110ms flick" gets DELIVERED as a 300ms drag — which the
+  // classifier then, correctly, refuses to call a flick. A real screen under
+  // load does what this version does: same duration, fewer, bigger deltas.
+  const t0 = performance.now();
+  for (;;) {
     await sleep(8);
-    const p = i / steps;
-    const jx = jit ? Math.sin(i * 0.12) * jit : 0;
-    const jy = jit ? Math.cos(i * 0.09) * jit : 0;
+    const el = performance.now() - t0;
+    const p = Math.min(1, el / ms);
+    const jx = jit ? Math.sin(el * 0.015) * jit : 0;
+    const jy = jit ? Math.cos(el * 0.011) * jit : 0;
     window.dispatchEvent(mk('touchmove', x0 + dist * p + jx, y0 + jy));
+    if (p >= 1) break;
   }
   if (hold) await sleep(hold);
-  window.dispatchEvent(mk('touchend', x0 + dist, y0));
-  await sleep(60);
+  // A QUICK lift (hold <= 100ms) smears a couple of pixels on a real screen.
+  // Delivering that smear also keeps a jank-stretched tail from accumulating
+  // 200ms of dead stillness at full deflection — which is, to the classifier,
+  // a deliberate resting aim, and it would be right.
+  const lift = hold && hold <= 100 ? 2.5 : 0;
+  if (lift) window.dispatchEvent(mk('touchmove', x0 + dist + lift, y0));
+  window.dispatchEvent(mk('touchend', x0 + dist + lift, y0));
+  // Buffered camera pixels are applied by the frame loop — wait for two real
+  // frames before reading yaw, or a starved rAF makes a perfectly good pan
+  // measure as a camera that never moved.
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  await sleep(30);
   return { ...window.__c, gest: window.input.stickR.lastGesture, yaw: window.follow.yaw - yaw0 };
 }, { dist, ms, hold, jit });
 
