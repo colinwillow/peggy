@@ -380,7 +380,7 @@ body.touch .legend-kbm { display: none; }
 #title.hidden { display: none; }
 #title.gone { opacity: 0; }
 #title-logo {
-  position: fixed; top: 3vh; left: 50%; z-index: 61;
+  position: fixed; top: max(1.5vh, env(safe-area-inset-top)); left: 50%; z-index: 61;
   transform: translateX(-50%);
   /* Sized so the pink splat at the mark's foot stays clear of her — she
      stands at frame centre, the camera being what it is. */

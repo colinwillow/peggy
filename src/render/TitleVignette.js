@@ -28,7 +28,7 @@ const C = {
   waveFront: 0x2596ab,
   waveDeep: 0x1d7f95,
   sand: 0xf0dca2,
-  sandEdge: 0xdec488,
+  sandEdge: 0xc19a5e,
   grass: 0x6fce62,
   trunk: 0x8a5a33,
   leaf: 0x3fae4f,
@@ -42,6 +42,21 @@ const C = {
   cloud: 0xffffff,
   shadow: 0x1c3a4a,
 };
+
+// A darker copy of a shape, scaled up around its own bounds, laid behind the
+// fill — the hand-inked outline every piece of 2D animation wears.
+function inked(shape, fill, ink, x, y, z, growX = 1.08, growY = 1.08) {
+  const g = new THREE.Group();
+  const back = flat(shape, ink, 0, 0, -0.01);
+  back.geometry.computeBoundingBox();
+  const bb = back.geometry.boundingBox;
+  const cx = (bb.min.x + bb.max.x) / 2, cy = (bb.min.y + bb.max.y) / 2;
+  back.scale.set(growX, growY, 1);
+  back.position.set(cx * (1 - growX), cy * (1 - growY), -0.01);
+  g.add(back, flat(shape, fill, 0, 0, 0));
+  g.position.set(x, y, z);
+  return g;
+}
 
 function flat(geoOrShape, color, x, y, z, opts = {}) {
   const geo = geoOrShape.isBufferGeometry ? geoOrShape : new THREE.ShapeGeometry(geoOrShape, opts.curveSegments ?? 16);
@@ -153,7 +168,7 @@ export class TitleVignette {
       scene.add(cl);
       anim((dt, t) => {
         cl.position.x += sp * dt;
-        if (cl.position.x > 13) cl.position.x = -13;
+        if (cl.position.x > 9) cl.position.x = -9;
       });
     }
 
@@ -169,8 +184,8 @@ export class TitleVignette {
       const ph = rand(0, TAU);
       anim((dt, t) => {
         g.position.x += sp * dt;
-        if (g.position.x > 12) g.position.x = -12;
-        if (g.position.x < -12) g.position.x = 12;
+        if (g.position.x > 8.5) g.position.x = -8.5;
+        if (g.position.x < -8.5) g.position.x = 8.5;
         g.scale.y = 1 + Math.sin(t * 7 + ph) * 0.3;  // the flap is a squash
         g.position.y += Math.sin(t * 1.3 + ph) * 0.002;
       });
@@ -184,6 +199,7 @@ export class TitleVignette {
       [0.55, 2.5, C.waveMid, -0.30, 0.14],
       [-0.55, 5, C.waveFront, 0.40, 0.18],
       [-2.2, 6, C.waveDeep, -0.26, 0.22],
+      [-3.9, 6.5, 0x176a7e, 0.2, 0.26],
     ]) {
       const wv = flat(waveStrip(34, STEPW, amp, 14), colr, 0, top, z);
       // The foam line: a thin pale strip riding each crest. It's the single
@@ -226,8 +242,8 @@ export class TitleVignette {
       ship.add(flat(sail(0.8, 0.85), C.sail, -0.55, 0.6, 0.01));
       // pennant
       ship.add(flat(new THREE.PlaneGeometry(0.3, 0.12), 0x1c2635, 0.62, 1.92, 0.01));
-      ship.position.set(3.4, 1.55, -18);
-      ship.scale.setScalar(0.95);
+      ship.position.set(2.9, 1.55, -18);
+      ship.scale.setScalar(0.85);
       scene.add(ship);
       anim((dt, t) => {
         ship.rotation.z = Math.sin(t * 0.6) * 0.035;
@@ -305,7 +321,7 @@ export class TitleVignette {
       trunk.quadraticCurveTo(0.83, 2.4, 0.95, 2.32);
       trunk.quadraticCurveTo(0.28, 1.15, 0.2, 0);
       trunk.closePath();
-      palm.add(flat(trunk, C.trunk, 0, 0, 0));
+      palm.add(inked(trunk, C.trunk, 0x53331b, 0, 0, 0, 1.10, 1.04));
       // chevron notches up the trunk — the shorthand every cartoon palm uses
       for (const [nx, ny, nr, na] of [[0.02, 0.5, 0.1, 0.15], [0.16, 1.05, 0.1, 0.3], [0.38, 1.55, 0.09, 0.45]]) {
         const notch = flat(new THREE.CircleGeometry(nr, 10, Math.PI + 0.4, Math.PI - 0.8), C.woodDark, nx, ny, 0.01, { opacity: 0.55 });
@@ -328,7 +344,7 @@ export class TitleVignette {
         [0.55, 1.25, C.leaf], [0.1, 1.45, C.leafDark], [-0.4, 1.35, C.leaf],
         [2.6, 1.2, C.leafDark], [3.0, 1.35, C.leaf], [-1.1, 1.1, C.leafDark],
       ]) {
-        const f = flat(frond(len), colr, 0, 0, 0.01 * a);
+        const f = inked(frond(len), colr, 0x25703a, 0, 0, 0.01 * a, 1.08, 1.2);
         f.rotation.z = a;
         crown.add(f);
       }
@@ -336,7 +352,8 @@ export class TitleVignette {
       crown.add(flat(new THREE.CircleGeometry(0.10, 12), C.woodDark, 0.05, -0.06, 0.08));
       crown.add(flat(new THREE.CircleGeometry(0.09, 12), C.woodDark, -0.12, 0.02, 0.08));
       palm.add(crown);
-      palm.position.set(-2.15, 0.9, 0.1);
+      palm.position.set(-2.3, 0.85, 0.1);
+      palm.scale.setScalar(1.3);
       scene.add(palm);
       anim((dt, t) => {
         palm.rotation.z = Math.sin(t * 0.7) * 0.022;
@@ -351,19 +368,20 @@ export class TitleVignette {
       base.moveTo(-0.5, 0); base.lineTo(0.5, 0);
       base.lineTo(0.46, 0.42); base.lineTo(-0.46, 0.42);
       base.closePath();
-      chest.add(flat(base, C.wood, 0, 0, 0));
+      chest.add(inked(base, C.wood, 0x3f2914, 0, 0, 0, 1.09, 1.09));
       const lid = new THREE.Shape();
       lid.moveTo(-0.5, 0.42); lid.lineTo(0.5, 0.42);
       lid.quadraticCurveTo(0.52, 0.75, 0, 0.78);
       lid.quadraticCurveTo(-0.52, 0.75, -0.5, 0.42);
       lid.closePath();
-      chest.add(flat(lid, C.woodDark, 0, 0.02, 0.01));
+      chest.add(inked(lid, C.woodDark, 0x3f2914, 0, 0.02, 0.01, 1.08, 1.1));
       chest.add(flat(new THREE.PlaneGeometry(0.1, 0.44), C.woodDark, -0.18, 0.21, 0.02));
       chest.add(flat(new THREE.PlaneGeometry(0.1, 0.44), C.woodDark, 0.18, 0.21, 0.02));
       chest.add(flat(new THREE.CircleGeometry(0.075, 12), C.gold, 0, 0.44, 0.03));
       // half-buried: tipped, sunk into the sand line
-      chest.position.set(1.55, 0.75, 0.35);
+      chest.position.set(1.6, 0.72, 0.35);
       chest.rotation.z = -0.22;
+      chest.scale.setScalar(1.18);
       scene.add(chest);
       // spilled coins
       for (const [cx, cy] of [[1.1, 0.72], [2.05, 0.62], [1.85, 0.5]]) {
@@ -375,12 +393,14 @@ export class TitleVignette {
     {
       const flagG = new THREE.Group();
       flagG.add(flat(new THREE.PlaneGeometry(0.055, 1.15), C.woodDark, 0, 0.55, 0));
+      flagG.add(flat(new THREE.PlaneGeometry(0.80, 0.52), 0x121019, 0.39, 0.94, 0.005));
       const banner = flat(new THREE.PlaneGeometry(0.72, 0.44), 0x232030, 0.39, 0.94, 0.01);
       flagG.add(banner);
       const skull = flat(new THREE.CircleGeometry(0.075, 12), 0xf0e6cf, 0.34, 0.96, 0.02);
       flagG.add(skull);
-      flagG.position.set(-1.15, 1.1, 0.3);
+      flagG.position.set(-1.2, 1.1, 0.3);
       flagG.rotation.z = 0.10;
+      flagG.scale.setScalar(1.2);
       scene.add(flagG);
       anim((dt, t) => {
         banner.scale.y = 1 + Math.sin(t * 3.1) * 0.06;
@@ -389,8 +409,71 @@ export class TitleVignette {
       });
     }
 
+    // ── a little crab, working the beach ──────────────────────────────────
+    {
+      const crab = new THREE.Group();
+      const body = flat(new THREE.CircleGeometry(0.17, 16), 0xd7503f, 0, 0, 0.01);
+      body.scale.y = 0.72;
+      const bodyInk = flat(new THREE.CircleGeometry(0.19, 16), 0x8f2f24, 0, -0.005, 0);
+      bodyInk.scale.y = 0.74;
+      crab.add(bodyInk, body);
+      for (const s2 of [-1, 1]) {
+        crab.add(flat(new THREE.CircleGeometry(0.075, 12), 0xd7503f, s2 * 0.22, 0.06, 0.02));
+        crab.add(flat(new THREE.CircleGeometry(0.09, 12), 0x8f2f24, s2 * 0.225, 0.055, 0.015));
+        // eye stalks
+        crab.add(flat(new THREE.CircleGeometry(0.03, 8), 0xffffff, s2 * 0.05, 0.16, 0.03));
+        crab.add(flat(new THREE.CircleGeometry(0.014, 6), 0x1a1420, s2 * 0.05, 0.163, 0.04));
+      }
+      crab.position.set(0.75, 0.52, 0.45);
+      scene.add(crab);
+      anim((dt, t) => {
+        crab.position.x = 0.75 + Math.sin(t * 0.4) * 0.5;   // sidles back and forth
+        crab.position.y = 0.52 + Math.abs(Math.sin(t * 6)) * 0.015;
+      });
+    }
+
+    // ── rocks in the surf ─────────────────────────────────────────────────
+    {
+      const rock = (w) => {
+        const s = new THREE.Shape();
+        s.moveTo(-w / 2, 0);
+        s.quadraticCurveTo(-w * 0.45, w * 0.5, -w * 0.1, w * 0.55);
+        s.quadraticCurveTo(w * 0.35, w * 0.52, w / 2, 0);
+        s.closePath();
+        return s;
+      };
+      const r1 = inked(rock(1.0), 0x5d7a88, 0x435d6b, -2.75, 0.32, 3.2, 1.1, 1.12);
+      const r2 = inked(rock(0.55), 0x54707d, 0x435d6b, 2.5, 1.32, -14.5, 1.1, 1.12);
+      scene.add(r1, r2);
+    }
+
+    // ── sparkles on the gold ──────────────────────────────────────────────
+    {
+      const spark = () => {
+        const s = new THREE.Shape();
+        const R1 = 0.09, R2 = 0.028;
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * TAU - Math.PI / 2;
+          const r = i % 2 ? R2 : R1;
+          if (i === 0) s.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+          else s.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+        }
+        s.closePath();
+        return s;
+      };
+      for (const [sx, sy, ph] of [[1.28, 1.35, 0], [2.15, 0.78, 2.1], [1.0, 0.78, 4.0]]) {
+        const sp = flat(spark(), 0xfff8e0, sx, sy, 0.5);
+        scene.add(sp);
+        anim((dt, t) => {
+          const k = Math.max(0, Math.sin(t * 1.7 + ph));
+          sp.scale.setScalar(0.25 + k * k * 1.1);
+          sp.rotation.z = t * 0.4 + ph;
+        });
+      }
+    }
+
     // ── flat blob shadows, the 2D-animation kind ──────────────────────────
-    for (const [sx, sy, w, o] of [[0.15, 1.45, 1.15, 0.16], [1.6, 0.68, 0.85, 0.13], [-2.2, 0.86, 0.8, 0.12]]) {
+    for (const [sx, sy, w, o] of [[0.1, 1.45, 1.5, 0.16], [1.6, 0.68, 0.85, 0.13], [-2.2, 0.86, 0.8, 0.12]]) {
       const sh = flat(new THREE.CircleGeometry(0.5, 20), C.shadow, sx, sy, 0.15, { opacity: o });
       sh.scale.set(w / 0.5, 0.22, 1);
       scene.add(sh);
@@ -420,7 +503,7 @@ export class TitleVignette {
   /** Drop the loaded character model into the frame. */
   setCharacter(model) {
     this._char = model;
-    model.object3D.scale.setScalar(1.5);    // poster scale, not simulation scale
+    model.object3D.scale.setScalar(1.9);    // poster scale, not simulation scale
     // The vignette is unlit vector art, so the character goes UNLIT too: her
     // painted texture at full brightness, exactly like a printed cel. Toon
     // shading here just read as "not illuminated" — the poster wants ink,
@@ -443,7 +526,7 @@ export class TitleVignette {
   resize(aspect) {
     // Frustum extents are RELATIVE TO THE CAMERA, which already sits at the
     // composition's centre height — so the box is symmetric around zero.
-    const MIN_W = 8.4, MIN_H = 7.2;
+    const MIN_W = 6.6, MIN_H = 6.6;
     let h = MIN_W / aspect;
     if (h < MIN_H) h = MIN_H;
     const w = h * aspect;
@@ -451,10 +534,12 @@ export class TitleVignette {
     this.camera.right = w / 2;
     this.camera.top = h / 2;
     this.camera.bottom = -h / 2;
-    // In landscape the DOM logo sits top-centre, right where the palm crown
-    // ends up — slide the framing so the island reads left-of-centre and the
-    // logo gets open sky. A one-time framing choice, not camera movement.
+    // In landscape the DOM logo sits in the right sky, so the island slides
+    // left; in portrait the whole composition rides LOW in the frame — the
+    // island fills the width, she dominates the middle, the logo owns the
+    // sky. One-time framing choices, not camera movement.
     this.camera.position.x = aspect > 1.2 ? 1.5 : 0;
+    this.camera.position.y = aspect < 1 ? 3.1 : 2.2;
     this.camera.updateProjectionMatrix();
   }
 }
