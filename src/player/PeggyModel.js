@@ -727,6 +727,33 @@ export class RiggedPeggyModel {
       // Recompute normals from the triangles — guaranteed-sane directions to
       // displace along, whatever the export shipped.
       o.geometry.computeVertexNormals();
+      // ── WELDED normals, or the line tears ────────────────────────────────
+      // UV seams split vertices: several copies of the same POSITION, each
+      // with its own normal. Displace along those and the copies fly apart —
+      // the shell tears at every seam and the outline reads as dashes and
+      // confetti (exactly what shipped). The fix, standard across toon
+      // pipelines: average the normals of every vertex sharing a position and
+      // displace along THAT, stored in its own attribute so lighting-facing
+      // normals stay untouched.
+      {
+        const pos = o.geometry.attributes.position;
+        const nrm = o.geometry.attributes.normal;
+        const acc = new Map();
+        const keyOf = (i) => `${Math.round(pos.getX(i) * 1e4)},${Math.round(pos.getY(i) * 1e4)},${Math.round(pos.getZ(i) * 1e4)}`;
+        for (let i = 0; i < pos.count; i++) {
+          const k = keyOf(i);
+          let a = acc.get(k);
+          if (!a) acc.set(k, a = [0, 0, 0]);
+          a[0] += nrm.getX(i); a[1] += nrm.getY(i); a[2] += nrm.getZ(i);
+        }
+        const smooth = new Float32Array(pos.count * 3);
+        for (let i = 0; i < pos.count; i++) {
+          const a = acc.get(keyOf(i));
+          const l = Math.hypot(a[0], a[1], a[2]) || 1;
+          smooth[i * 3] = a[0] / l; smooth[i * 3 + 1] = a[1] / l; smooth[i * 3 + 2] = a[2] / l;
+        }
+        o.geometry.setAttribute('aOutlineN', new THREE.BufferAttribute(smooth, 3));
+      }
       // Thickness must be expressed in BIND space, and the mesh node's world
       // scale is a lie for skinned meshes (the bones carry the real
       // transform: node scale here reads 0.0128 while bind space is
@@ -739,17 +766,13 @@ export class RiggedPeggyModel {
       const bindH = o.geometry.boundingBox.getSize(new THREE.Vector3()).y || 1;
       const mat = new THREE.MeshBasicMaterial({ color: 0x1c1424, side: THREE.BackSide });
       mat.onBeforeCompile = (sh) => {
-        sh.uniforms.uOutline = { value: 0.04 * (bindH / target) };  // ~4cm of ink — bold, it's a cartoon
-        // Use the raw `normal` ATTRIBUTE (always declared), not objectNormal —
-        // MeshBasicMaterial's vertex stage doesn't define objectNormal, and
-        // the undefined read exploded the shell into confetti. Zero-length
-        // normals (this is a machine-generated mesh) are guarded to no-ops.
+        sh.uniforms.uOutline = { value: 0.045 * (bindH / target) };  // bold ink — it's a cartoon
         sh.vertexShader = sh.vertexShader
-          .replace('#include <common>', '#include <common>\nuniform float uOutline;')
+          .replace('#include <common>', '#include <common>\nuniform float uOutline;\nattribute vec3 aOutlineN;')
           .replace('#include <begin_vertex>',
             `#include <begin_vertex>
-             float _nl = length( normal );
-             if ( _nl > 0.0001 ) transformed += ( normal / _nl ) * uOutline;`);
+             float _nl = length( aOutlineN );
+             if ( _nl > 0.0001 ) transformed += ( aOutlineN / _nl ) * uOutline;`);
       };
       // Clone the source mesh itself — clone() carries the full bind state
       // (skeleton reference, bindMatrix, bindMode) that a hand-built
@@ -910,7 +933,7 @@ export async function createPeggyModel() {
     // bright 2D drawing. The pixels themselves had to change. Regenerate it
     // from the raw file if the art updates, and BUMP THE FILENAME: cached
     // phones never re-fetch a same-name asset.
-    { url: 'models/glorp_character.glb', texture: 'images/glorp_texture_cel-v1.webp' },
+    { url: 'models/glorp_character.glb', texture: 'images/glorp_texture_cel-v2.webp' },
   ];
 
   const loader = new GLTFLoader();
