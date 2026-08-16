@@ -15,8 +15,8 @@ import * as THREE from '../../vendor/three/three.module.js';
 const _UP = new THREE.Vector3(0, 1, 0);
 
 const T = {
-  speed: 21,           // m/s at the muzzle
-  lift: 2.2,           // small up-kick so level shots carry before falling
+  speed: 26,           // m/s at the muzzle — Robits bullets are FAST
+  lift: 1.6,           // small up-kick so level shots carry before falling
   gravity: 16,
   life: 2.4,           // seconds before a ball gives up
   radius: 0.09,

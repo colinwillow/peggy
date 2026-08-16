@@ -366,7 +366,7 @@ async function boot() {
       follow.attract(peggy.faceLock);
       shootCd -= dt;
       if (shootCd <= 0 && !peggy.inWater) {
-        shootCd = 0.34;
+        shootCd = 0.18;   // Robits' rocket-class cadence — a stream, not lobs
         if (model.muzzleWorld) model.muzzleWorld(_v);
         else _v.set(peggy.position.x, peggy.position.y + 1.0, peggy.position.z);
         cannon.fire(_v, aimVec);

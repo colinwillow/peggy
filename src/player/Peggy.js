@@ -36,14 +36,14 @@ const TUNING = {
   eyeHeight: 1.2,
 
   walkSpeed: 3.1,
-  runSpeed: 7.2,
-  momentumBuild: 0.55,    // per second toward full momentum
+  runSpeed: 9.6,        // Robits-calibrated: full momentum is a SPRINT, not a trot
+  momentumBuild: 0.5,     // per second toward full momentum — a ~2s felt gather, per Robits
   momentumDecay: 1.6,
-  momentumFloor: 0.62,    // cold start is a jog, not a standstill
+  momentumFloor: 0.55,    // cold start is a jog, not a standstill
 
-  groundAccelHL: 0.10,    // half-life, seconds
-  groundBrakeHL: 0.13,
-  airAccelHL: 0.34,
+  groundAccelHL: 0.055,   // half-life, seconds — Robits reaches speed in ~3 frames, so do we
+  groundBrakeHL: 0.26,    // released stick COASTS (Robits' glide), then the snap-stop below catches it
+  airAccelHL: 0.22,
   airControl: 0.55,       // fraction of ground authority while airborne
 
   turnHL: 0.055,          // land turning: deliberate, with a bit of lean

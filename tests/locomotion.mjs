@@ -480,8 +480,8 @@ const out = await page.evaluate(() => {
     let guard = 0;
     while (!P.grounded && guard++ < 800) step(1);
     r.doubleJumpDistance = +Math.abs(P.position.z - jz).toFixed(2);
-    // The course's last edge gap is 8.4m: clearable only with the double.
-    r.lastGapNeedsDouble = r.runJumpDistance < 8.4 && r.doubleJumpDistance > 8.8;
+    // The course's last edge gap is 16.2m: clearable only with the double.
+    r.lastGapNeedsDouble = r.runJumpDistance < 16.2 && r.doubleJumpDistance > 16.8;
   }
 
   // ── twin-stick face lock: run backwards while looking forward ───────────
@@ -551,13 +551,14 @@ const checks = [
   ['stick goes where screen says',  out.worstStickDot, 0.97, 1.01],
   ['forward moves AWAY from camera', out.worstAwayDot, 0.97, 1.01],
   ['every push actually moves her',  out.minStickMove, 0.5, 99],
-  ['top speed 7.2 m/s',            out.topSpeed, 7.0, 7.4],
-  ['reaches top speed by 2s',      out.accel.find((a) => a.t === 2).speed, 6.6, 7.4],
-  ['starts at a jog, not a crawl', out.accel[0].speed, 0.9, 2.4],
+  ['top speed 9.6 m/s',            out.topSpeed, 9.35, 9.85],
+  ['reaches top speed by 2s',      out.accel.find((a) => a.t === 2).speed, 9.0, 9.85],
+  ['starts at a jog, not a crawl', out.accel[0].speed, 0.9, 6.5],
   ['jump height ~2.6m',            out.jumpHeight, 2.35, 2.8],
   ['jump airtime ~1.0s',           out.jumpAirtime, 0.85, 1.15],
-  ['running jump clears the 4.5m gap', out.runJumpDistance, 5.5, 8.3],
-  ['stops within 2.5m',            out.stopDistance, 0.8, 2.6],
+  ['running jump clears the 7m gap', out.runJumpDistance, 10.5, 12.5],
+  ['run + double jump distance',   out.doubleJumpDistance, 10.6, 99],
+  ['coasts to a stop within 5.5m', out.stopDistance, 3.0, 5.5],
   ['dives at least 6m down',       out.diveDepth, 6, 40],
   ['floats without drifting',      out.floatDrift, 0, 0.05],
   ['slides DOWN the steep spire',  out.steepSlopeGain, -60, -1.0],

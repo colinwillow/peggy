@@ -21,7 +21,7 @@ import { rand, TAU, clamp01, lerp } from '../core/math.js';
 const FLOCKS = [
   { cx: 12, cy: 22, cz: -6, r: 11, speed: 0.34, count: 5 },
   { cx: -4, cy: 14, cz: -60, r: 8, speed: -0.42, count: 4 },
-  { cx: 2, cy: 12, cz: -92, r: 7, speed: 0.5, count: 4 },
+  { cx: 2, cy: 12, cz: -100, r: 7, speed: 0.5, count: 4 },
 ];
 
 // ── fish leap spots ─────────────────────────────────────────────────────────

@@ -668,7 +668,7 @@ export function buildTestIsland(scene) {
 
   // ── THE ARCHIPELAGO: a stepping-stone hop course off the south beach ─────
   // Gaps are tuned against the measured movement numbers, not guessed:
-  // a running jump covers ~7m and run + double jump ~10m, so the course
+  // a running jump covers ~11.5m and run + double jump ~18m, so the course
   // escalates walk-on -> easy -> running -> full-momentum -> double-jump, and
   // the last gap is honestly impossible without the double. Pillar tops rise a
   // little each step so falling short drops you in the sea, which in this game
@@ -677,7 +677,7 @@ export function buildTestIsland(scene) {
     const R = 1.7;                       // pillar top radius
     const rockMat = toonMaterial({ color: 0x93856f, rimStrength: 0.3 });
     const capMat = toonMaterial({ color: 0xf6e7b2, rimStrength: 0.25 });
-    // [x, z, topHeight] — consecutive edge gaps: 2.7, 3.6, 4.5, 8.4.
+    // [x, z, topHeight] — consecutive edge gaps: 2.7, 3.6, 4.5, 16.2.
     // The last pillar stands at the islet's rim, so the double-jump beat is
     // the fourth gap and landing it delivers you to the treasure.
     const steps = [
@@ -685,7 +685,7 @@ export function buildTestIsland(scene) {
       [-5.2, -58.0, 1.6],
       [-3.6, -64.8, 2.0],
       [-1.4, -72.4, 2.4],
-      [2.3, -83.6, 2.6],
+      [2.3, -91.6, 2.6],
     ];
     let prev = null;
     for (const [px, pz, top] of steps) {
@@ -698,21 +698,21 @@ export function buildTestIsland(scene) {
     }
 
     // The treasure islet at the end of both routes.
-    level.addIsland({ cx: 2, cz: -92, radius: 8.5, height: 3.6, plateau: 0.5, rough: 0.2 });
-    const ty = level.terrainHeight(2, -92);
+    level.addIsland({ cx: 2, cz: -100, radius: 8.5, height: 3.6, plateau: 0.5, rough: 0.2 });
+    const ty = level.terrainHeight(2, -100);
     // One palm for shade — and for the title screen, which frames this islet:
     // chest, palm, water, her. Planted north-west of the chest so it reads as
     // backdrop from the title camera instead of a trunk through the frame.
-    palm(-2.4, -90.6);
+    palm(-2.4, -98.6);
     // a ring of doubloons and the chest that earns the trip
     for (let i = 0; i < 8; i++) {
       const a = (i / 8) * TAU;
-      addCoin(2 + Math.cos(a) * 2.6, level.terrainHeight(2 + Math.cos(a) * 2.6, -92 + Math.sin(a) * 2.6) + 0.7, -92 + Math.sin(a) * 2.6);
+      addCoin(2 + Math.cos(a) * 2.6, level.terrainHeight(2 + Math.cos(a) * 2.6, -100 + Math.sin(a) * 2.6) + 0.7, -100 + Math.sin(a) * 2.6);
     }
-    buildChest(2, ty, -92, () => {
+    buildChest(2, ty, -100, () => {
       for (let i = 0; i < 10; i++) {
         const a = (i / 10) * TAU;
-        addCoin(2 + Math.cos(a) * rand(1.2, 3.4), ty + 0.8, -92 + Math.sin(a) * rand(1.2, 3.4));
+        addCoin(2 + Math.cos(a) * rand(1.2, 3.4), ty + 0.8, -100 + Math.sin(a) * rand(1.2, 3.4));
       }
     });
   }
@@ -726,7 +726,7 @@ export function buildTestIsland(scene) {
   {
     const barY = 6.4;
     const bars = [
-      [6.5, -52], [8.0, -60], [9.0, -68], [9.5, -76], [8.5, -84],
+      [6.5, -52], [8.0, -60], [9.0, -68], [9.5, -76], [8.5, -84], [7.0, -92],
     ];
     for (let i = 0; i < bars.length; i++) {
       const [bx, bz] = bars[i];
