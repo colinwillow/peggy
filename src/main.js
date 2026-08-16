@@ -19,6 +19,7 @@ import { Hook, HookState } from './player/Hook.js';
 import { createPeggyModel } from './player/PeggyModel.js';
 import { Cannon } from './player/Cannon.js';
 import { TitleVignette } from './render/TitleVignette.js';
+import { InkPass } from './render/ink.js';
 import { FollowCamera } from './camera/FollowCamera.js';
 
 const SUN_DIR = new THREE.Vector3(38, 60, 26).normalize();
@@ -49,6 +50,9 @@ async function boot() {
 
   const scene = new THREE.Scene();
   scene.fog = new THREE.FogExp2(FOG_AIR.getHex(), 0.0032);
+
+  // Screen-space outlines. ?noink falls back to the raw render.
+  const ink = /noink/.test(location.search) ? null : new InkPass(renderer);
 
   const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.1, 3000);
   camera.position.set(0, 10, 20);
@@ -91,6 +95,9 @@ async function boot() {
 
   const model = await createPeggyModel();
   scene.add(model.object3D);
+  // The screen-space ink outlines her silhouette at uniform width — better
+  // than the geometry shell, which stands down when the pass is on.
+  if (ink && model.setInkShell) model.setInkShell(false);
 
   const follow = new FollowCamera(camera, level, water);
   follow.snapTo(peggy);
@@ -647,12 +654,15 @@ async function boot() {
     // While the title holds the screen, the vignette is the only thing drawn —
     // the world simulates but pays no render cost, depth prepass included.
     if (title.active && title.vignette) {
-      renderer.render(title.vignette.scene, title.vignette.camera);
+      // The ortho vignette sits ~50m out, so lines barely fade there.
+      if (ink) ink.render(title.vignette.scene, title.vignette.camera, { fade: 600 });
+      else renderer.render(title.vignette.scene, title.vignette.camera);
       return;
     }
     // Depth prepass without the water, for the shoreline foam.
     water.renderDepth(renderer, scene, camera);
-    renderer.render(scene, camera);
+    if (ink) ink.render(scene, camera);
+    else renderer.render(scene, camera);
   }
 
   const loop = new Loop({ update, render });
@@ -666,6 +676,7 @@ async function boot() {
     renderer.setPixelRatio(Math.min(devicePixelRatio, QUALITY.pixelRatio));
     renderer.setSize(innerWidth, innerHeight);
     water.resize();
+    if (ink) ink.setSize();
     if (title.vignette) title.vignette.resize(innerWidth / innerHeight);
   }
   addEventListener('resize', () => {
@@ -683,7 +694,7 @@ async function boot() {
   // ── dev handles ──────────────────────────────────────────────────────────
   // Tuning a controller means changing a number and feeling it immediately.
   // Everything worth touching is reachable from the console.
-  Object.assign(window, { THREE, scene, camera, renderer, peggy, hook, follow, level, water, input, model, loop, stairTops, QUALITY, coins, crabs, cannon });
+  Object.assign(window, { THREE, scene, camera, renderer, peggy, hook, follow, level, water, input, model, loop, stairTops, QUALITY, coins, crabs, cannon, ink });
 
   // Automation (navigator.webdriver — Playwright, the test suite) skips the
   // title entirely and lands straight in the game, as does ?notitle, so every

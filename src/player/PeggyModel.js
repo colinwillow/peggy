@@ -785,6 +785,12 @@ export class RiggedPeggyModel {
       shells.push([o, shell]);
     });
     for (const [src, shell] of shells) src.parent.add(shell);
+    this._shells = shells.map(([, s]) => s);
+  }
+
+  /** The screen-space ink pass replaces the geometry shell when active. */
+  setInkShell(visible) {
+    for (const s of this._shells) s.visible = visible;
   }
 
   _play(key, fadeHL, dt) {
