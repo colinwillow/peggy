@@ -6,11 +6,13 @@
 // over crates in a way a hitscan ray never does.
 //
 // Pooled, like anything that spawns at 3 rounds a second. A ball that hits a
-// crab hurts it; a ball that hits ground or water leaves a little pop of a
-// puff and is gone. No friendly-fire, no self-damage, no ammo — the trigger
-// is the resource.
+// crab hurts it; a ball that hits a barrel knocks it flying (and enough of
+// them stave it in); a ball that hits a wall ricochets; ground or water gets
+// a little pop of a puff. No friendly-fire, no self-damage, no ammo — the
+// trigger is the resource.
 
 import * as THREE from '../../vendor/three/three.module.js';
+import { BoxSolid } from '../world/Level.js';
 
 const _UP = new THREE.Vector3(0, 1, 0);
 
@@ -22,6 +24,7 @@ const T = {
   radius: 0.09,
   hitRadius: 0.62,     // vs a crab's centre
   power: 12,           // one shot pops one hp — same as a sword hit
+  knock: 8,            // shove given to a barrel — under the sword's 11
   bounces: 2,          // skips off the ground before the ball gives up
   restitution: 0.55,   // energy kept per skip
 };
@@ -76,7 +79,45 @@ export class Cannon {
   }
 
   /**
-   * @param world  { level, water, crabs }
+   * A ball flying INSIDE a solid's side wall. groundAt() only knows about
+   * solid TOPS, so without this a shot sailed clean through the flank of a
+   * crate, a pillar, the mast. Pushes the ball out along the axis of least
+   * penetration (mirroring Level.resolveHorizontal) and returns the wall's
+   * horizontal normal so the caller can ricochet off it.
+   */
+  _solidHit(level, p) {
+    const r = T.radius;
+    for (const s of level.solids) {
+      if (p.y > s.top || p.y < s.bottom) continue;
+      if (s instanceof BoxSolid) {
+        const l = this._l || (this._l = { x: 0, z: 0 });
+        s.toLocal(p.x, p.z, l);
+        const px = s.half.x + r - Math.abs(l.x);
+        const pz = s.half.z + r - Math.abs(l.z);
+        if (px <= 0 || pz <= 0) continue;
+        const d = this._d || (this._d = { x: 0, z: 0 });
+        if (px < pz) s.toWorldDir(Math.sign(l.x || 1), 0, d);
+        else s.toWorldDir(0, Math.sign(l.z || 1), d);
+        const depth = Math.min(px, pz);
+        p.x += d.x * depth; p.z += d.z * depth;
+        return d;
+      } else {
+        const dx = p.x - s.centre.x, dz = p.z - s.centre.z;
+        const dist = Math.hypot(dx, dz);
+        const minD = s.radius + r;
+        if (dist >= minD || dist < 1e-5) continue;
+        const n = this._d || (this._d = { x: 0, z: 0 });
+        n.x = dx / dist; n.z = dz / dist;
+        p.x = s.centre.x + n.x * minD;
+        p.z = s.centre.z + n.z * minD;
+        return n;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * @param world  { level, water, crabs, loose }
    */
   update(dt, world) {
     for (const b of this._balls) {
@@ -100,6 +141,44 @@ export class Cannon {
             this._puff(p, 0xffd98f);
             dead = true;
             break;
+          }
+        }
+      }
+
+      // barrels and any other loose prop: exactly the kind of thing a
+      // blunderbuss is for. hit() knocks it flying, and enough hits stave it in.
+      if (!dead && world.loose) {
+        for (const h of world.loose) {
+          if (h.held || h.dead || !h.hit) continue;
+          const rr = h.radius + T.radius + 0.12;
+          const dx = p.x - h.position.x, dy = p.y - h.position.y, dz = p.z - h.position.z;
+          if (dx * dx + dy * dy + dz * dz < rr * rr) {
+            const l = Math.hypot(b.vel.x, b.vel.z) || 1;
+            h.hit(b.vel.x / l, b.vel.z / l, T.knock);
+            this._puff(p, 0xe8d9b0);
+            dead = true;
+            break;
+          }
+        }
+      }
+
+      // walls: ricochet off the sides of crates, pillars, the mast — sharing
+      // the same bounce budget as a ground skip, so a ball pinballs a couple
+      // of times and then gives up.
+      if (!dead) {
+        const n = this._solidHit(world.level, p);
+        if (n) {
+          const speed = b.vel.length();
+          if (b.bounces < T.bounces && speed > 5) {
+            const dot = b.vel.x * n.x + b.vel.z * n.z;
+            b.vel.x -= 2 * dot * n.x;
+            b.vel.z -= 2 * dot * n.z;
+            b.vel.multiplyScalar(T.restitution);
+            b.bounces++;
+            this._puff(p, 0xcbb89b);
+          } else {
+            this._puff(p, 0xcbb89b);
+            dead = true;
           }
         }
       }

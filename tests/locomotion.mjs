@@ -539,6 +539,54 @@ const out = await page.evaluate(() => {
 
   r.coinCount = window.coins.length;
 
+  // ── the cannon vs the world: barrels break, walls ricochet ──────────────
+  // Steps Cannon.update() directly, same philosophy as everything above: the
+  // main loop is paused while this evaluate runs, so the balls fly exactly
+  // as many frames as we give them.
+  {
+    const C = window.cannon, loose = window.loose, W = window.water;
+    const stepC = (n) => { for (let i = 0; i < n; i++) C.update(DT, { level: L, water: W, crabs: [], loose }); };
+    const barrel = loose[0];
+    const keep = { pos: barrel.position.clone(), hp: barrel.hp };
+
+    // park it on the open beach and put two balls into it
+    barrel.position.set(4, L.terrainHeight(4, -30) + 0.55, -30);
+    barrel.vel.set(0, 0, 0);
+    const coins0 = window.coins.length;
+    C.fire(new THREE.Vector3(4, barrel.position.y, -33), new THREE.Vector3(0, 0, 1));
+    stepC(60);
+    const knocked = barrel.hp === keep.hp - 1 && barrel.vel.lengthSq() > 4;
+    C.fire(new THREE.Vector3(4, barrel.position.y, -33), new THREE.Vector3(0, 0, 1));
+    stepC(60);
+    r.cannonWorld = {
+      knocked,
+      twoHitsBreak: barrel.dead === true,
+      coinsPaid: window.coins.length - coins0,
+    };
+
+    // fire square at the tall crate past the stairs (x 17..19.4, z -9.2..-6.8):
+    // the ball must come BACK (ricochet), never pass through to the far side
+    const cy = L.terrainHeight(18.2, -11) + 0.6;
+    C.fire(new THREE.Vector3(18.2, cy, -11), new THREE.Vector3(0, 0, 1));
+    const ball = C._balls.find((b) => b.life > 0);
+    let maxZ = -99, reversed = false;
+    for (let i = 0; i < 240; i++) {
+      stepC(1);
+      if (ball.life > 0) {
+        maxZ = Math.max(maxZ, ball.m.position.z);
+        if (ball.vel.z < -0.5) reversed = true;
+      }
+    }
+    r.cannonWorld.ricochetMaxZ = +maxZ.toFixed(2);
+    r.cannonWorld.ricochet = reversed && maxZ < -6.8;
+
+    // put the barrel back so nothing downstream sees a broken one
+    barrel.dead = false; barrel.hp = keep.hp; barrel._popT = 0; barrel._respawnT = 0; barrel._growT = 0;
+    barrel.position.copy(keep.pos); barrel.vel.set(0, 0, 0); barrel.spin.set(0, 0, 0);
+    barrel.object3D.visible = true; barrel.object3D.scale.setScalar(1);
+    barrel.object3D.rotation.set(0, 0, 0);
+  }
+
   return r;
 });
 
@@ -609,6 +657,10 @@ const bools = [
   ['monkey bars exist',                 out.bars.exists],
   ['bar latch lands near the throw',    out.bars.latchNearThrow],
   ['bar latch is not just the centre',  out.bars.latchNotCentre],
+  ['a cannonball knocks a barrel',      out.cannonWorld.knocked],
+  ['two balls stave the barrel in',     out.cannonWorld.twoHitsBreak],
+  ['a broken barrel pays out coins',    out.cannonWorld.coinsPaid === 2],
+  ['cannonballs ricochet off walls',    out.cannonWorld.ricochet],
   ['crabs spawn',                       out.crab.count >= 4],
   ['a melee hit costs a crab hp',       out.crab.lostHp],
   ['...and sends it flying',            out.crab.launched],

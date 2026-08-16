@@ -72,7 +72,7 @@ async function boot() {
     depthScale: QUALITY.waterDepthScale,
   });
 
-  const { level, props, spawn, loose, stairTops, updateLoose, knock, coins, addCoin, crabs } = buildTestIsland(scene);
+  const { level, props, spawn, loose, stairTops, updateLoose, coins, addCoin, crabs } = buildTestIsland(scene);
   const ambience = buildAmbience(scene, water);
   const cannon = new Cannon(scene);
 
@@ -429,12 +429,12 @@ async function boot() {
       const t = 1 - peggy.meleeTimer / (peggy.meleeDuration || 0.32);
       if (t > 0.12) {
         for (const h of loose) {
-          if (h.held || meleeSwing.hit.has(h)) continue;
+          if (h.held || h.dead || meleeSwing.hit.has(h)) continue;
           if (!peggy.meleeHits(h.position.x, h.position.y, h.position.z)) continue;
           meleeSwing.hit.add(h);
           const dx = h.position.x - peggy.position.x, dz = h.position.z - peggy.position.z;
           const d = Math.hypot(dx, dz) || 1;
-          knock(h, dx / d, dz / d, meleeSwing.power);
+          h.hit(dx / d, dz / d, meleeSwing.power);
           follow.addTrauma(0.14);
         }
         for (const crab of crabs) {
@@ -513,7 +513,7 @@ async function boot() {
     });
 
     ambience.update(dt, time);
-    cannon.update(dt, { level, water, crabs });
+    cannon.update(dt, { level, water, crabs, loose });
     if (title.vignette) title.vignette.update(dt, time);
     water.update(dt, camera);
     sky.update(camera);
@@ -694,7 +694,7 @@ async function boot() {
   // ── dev handles ──────────────────────────────────────────────────────────
   // Tuning a controller means changing a number and feeling it immediately.
   // Everything worth touching is reachable from the console.
-  Object.assign(window, { THREE, scene, camera, renderer, peggy, hook, follow, level, water, input, model, loop, stairTops, QUALITY, coins, crabs, cannon, ink });
+  Object.assign(window, { THREE, scene, camera, renderer, peggy, hook, follow, level, water, input, model, loop, stairTops, QUALITY, coins, crabs, cannon, ink, loose });
 
   // Automation (navigator.webdriver — Playwright, the test suite) skips the
   // title entirely and lands straight in the game, as does ?notitle, so every

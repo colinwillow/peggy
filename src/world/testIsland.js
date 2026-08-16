@@ -409,7 +409,30 @@ export function buildTestIsland(scene) {
       vel: new THREE.Vector3(),
       spin: new THREE.Vector3(),
       radius: 0.55,
+      home: barrel.position.clone(),
+      hp: 2,
+      dead: false,
+      _popT: 0,
+      _growT: 0,
+      _respawnT: 0,
       onCaught: () => { haulable.caught = true; },
+    };
+    // Two solid hits — sword or cannonball, they share the verb — stave the
+    // barrel in: it pops, pays out a couple of doubloons, and a fresh one is
+    // coopered on this spot a little later, so the world stays stocked with
+    // things to hit.
+    haulable.hit = (dirX, dirZ, power) => {
+      if (haulable.dead || haulable.held) return false;
+      knock(haulable, dirX, dirZ, power);
+      haulable.hp -= 1;
+      if (haulable.hp > 0) return true;
+      haulable.dead = true;
+      haulable._popT = 0.22;
+      haulable._respawnT = 16;
+      haulable.vel.set(0, 0, 0);
+      addCoin(haulable.position.x - 0.6, haulable.position.y + 0.5, haulable.position.z + 0.2);
+      addCoin(haulable.position.x + 0.6, haulable.position.y + 0.5, haulable.position.z - 0.2);
+      return true;
     };
     level.haulables.push(haulable);
     loose.push(haulable);
@@ -785,6 +808,28 @@ export function buildTestIsland(scene) {
   function updateLoose(dt, water) {
     for (const a of animated) if (a.userData.openAnim) a.userData.openAnim(dt);
     for (const h of loose) {
+      // staved-in: shrink out, wait, then re-cooper at the home spot
+      if (h.dead) {
+        if (h._popT > 0) {
+          h._popT -= dt;
+          h.object3D.scale.setScalar(Math.max(0.01, h._popT / 0.22));
+          if (h._popT <= 0) h.object3D.visible = false;
+        } else if ((h._respawnT -= dt) <= 0) {
+          h.dead = false;
+          h.hp = 2;
+          h.position.copy(h.home);
+          h.vel.set(0, 0, 0);
+          h.spin.set(0, 0, 0);
+          h.object3D.rotation.set(0, 0, 0);
+          h.object3D.visible = true;
+          h._growT = 0.25;
+        }
+        continue;
+      }
+      if (h._growT > 0) {
+        h._growT -= dt;
+        h.object3D.scale.setScalar(1 - 0.7 * Math.max(0, h._growT) / 0.25);
+      }
       if (h.held) continue;
       const moving = h.vel.lengthSq() > 1e-4;
       if (!moving) continue;

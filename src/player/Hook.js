@@ -162,7 +162,7 @@ export class Hook {
   _findHaulable(from, dir) {
     let best = null, bestScore = Infinity;
     for (const h of this.level.haulables) {
-      if (h.held) continue;
+      if (h.held || h.dead) continue;
       const d = this._tmp.subVectors(h.position, from);
       const dist = d.length();
       if (dist > HOOK.range || dist < 0.5) continue;
