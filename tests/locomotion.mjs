@@ -580,6 +580,14 @@ const out = await page.evaluate(() => {
     r.cannonWorld.ricochetMaxZ = +maxZ.toFixed(2);
     r.cannonWorld.ricochet = reversed && maxZ < -6.8;
 
+    // the aim ghost: a preview of the same flight — dots along the arc and a
+    // ring where the ball spends itself
+    C.aim(1 / 60, new THREE.Vector3(4, L.terrainHeight(4, -30) + 1, -33), new THREE.Vector3(0, 0, 1), { level: L, water: W });
+    r.cannonWorld.ghostDots = C._aimDots.count;
+    r.cannonWorld.ghostRing = C._aimRing.visible;
+    C.aimOff();
+    r.cannonWorld.ghostHidden = !C._aimDots.visible && !C._aimRing.visible;
+
     // put the barrel back so nothing downstream sees a broken one
     barrel.dead = false; barrel.hp = keep.hp; barrel._popT = 0; barrel._respawnT = 0; barrel._growT = 0;
     barrel.position.copy(keep.pos); barrel.vel.set(0, 0, 0); barrel.spin.set(0, 0, 0);
@@ -661,6 +669,9 @@ const bools = [
   ['two balls stave the barrel in',     out.cannonWorld.twoHitsBreak],
   ['a broken barrel pays out coins',    out.cannonWorld.coinsPaid === 2],
   ['cannonballs ricochet off walls',    out.cannonWorld.ricochet],
+  ['aim ghost draws a dotted arc',      out.cannonWorld.ghostDots >= 6],
+  ['aim ghost marks the landing',       out.cannonWorld.ghostRing === true],
+  ['aim ghost hides when released',     out.cannonWorld.ghostHidden],
   ['crabs spawn',                       out.crab.count >= 4],
   ['a melee hit costs a crab hp',       out.crab.lostHp],
   ['...and sends it flying',            out.crab.launched],

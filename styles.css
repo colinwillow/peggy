@@ -96,30 +96,6 @@ html, body {
   box-shadow: 0 0 22px rgba(83, 215, 200, 0.55);
 }
 
-/* ── RETICLE ─────────────────────────────────────────────────────────────
-   Small, centre-screen, and normally almost invisible. It only earns your
-   attention when there's actually something to hook. */
-
-#reticle {
-  position: fixed;
-  left: 50%;
-  top: 50%;
-  width: 16px;
-  height: 16px;
-  margin: -8px 0 0 -8px;
-  border: 2px solid rgba(244, 230, 200, 0.28);
-  border-radius: 50%;
-  pointer-events: none;
-  z-index: 7;
-  transition: transform 120ms cubic-bezier(.2,.9,.3,1.4),
-              border-color 120ms, box-shadow 120ms;
-}
-#reticle.locked {
-  border-color: var(--gold);
-  box-shadow: 0 0 14px rgba(224, 181, 82, 0.85);
-  transform: scale(1.55);
-}
-
 /* ── HUD ─────────────────────────────────────────────────────────────────
    Dev readout, top-left, deliberately plain. This is scaffolding for tuning
    the controller, not the shipping HUD. */
@@ -262,14 +238,6 @@ body.touch .legend-kbm { display: none; }
 @media (orientation: portrait) and (pointer: coarse) {
   .stick-zone { top: 30vh; }
   #controls-legend { bottom: calc(var(--safe-b) + 6px); font-size: 9.5px; }
-}
-
-/* Charging the hook: the reticle swells as the hold builds, so a press-and-hold
-   reads as "something is happening" rather than as a dropped input. */
-#reticle.charging {
-  border-color: rgba(224, 181, 82, 0.9);
-  transform: scale(calc(1 + var(--charge, 0) * 1.4));
-  box-shadow: 0 0 calc(6px + var(--charge, 0) * 18px) rgba(224, 181, 82, 0.75);
 }
 
 /* ── CONTEXT PROMPT ──────────────────────────────────────────────────────
@@ -426,7 +394,6 @@ body.touch .legend-kbm { display: none; }
 /* While the title holds the screen, the game chrome does not exist. */
 body.titling #hud,
 body.titling #controls-legend,
-body.titling #reticle,
 body.titling #prompt,
 body.titling .stick-zone,
 body.titling .stick-ring,

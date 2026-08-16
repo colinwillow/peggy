@@ -31,6 +31,9 @@ const T = {
 
 const POOL = 10;
 const PUFFS = 8;
+const AIM_DOTS = 22;        // ghost dots along the previewed arc
+const AIM_SPACING = 0.7;    // metres between them
+const _Z = new THREE.Vector3(0, 0, 1);
 
 export class Cannon {
   constructor(scene) {
@@ -57,6 +60,117 @@ export class Cannon {
       scene.add(m);
       this._puffs.push({ m, t: 0 });
     }
+
+    // ── the aim ghost ──────────────────────────────────────────────────────
+    // While the trigger is held, the flight the NEXT ball would take is drawn
+    // in the world: the same ballistics stepped ahead of time, dotted along
+    // the arc — bounces included, because the simulation IS the flight code,
+    // so the preview cannot lie. The dots march away from the muzzle so the
+    // line reads as flow rather than a fence, and a ring marks where the ball
+    // finally spends itself. Ghosts write no depth, so the ink pass leaves
+    // them un-outlined — see-through by construction.
+    this._aimDots = new THREE.InstancedMesh(
+      new THREE.OctahedronGeometry(0.085, 0),
+      new THREE.MeshBasicMaterial({ color: 0xfff1c9, transparent: true, opacity: 0.55, depthWrite: false }),
+      AIM_DOTS
+    );
+    this._aimDots.frustumCulled = false;
+    this._aimDots.renderOrder = 19;
+    this._aimDots.count = 0;
+    this._aimDots.visible = false;
+    scene.add(this._aimDots);
+
+    this._aimRing = new THREE.Mesh(
+      new THREE.TorusGeometry(0.34, 0.04, 6, 22),
+      new THREE.MeshBasicMaterial({ color: 0xffd97a, transparent: true, opacity: 0.6, depthWrite: false })
+    );
+    this._aimRing.renderOrder = 19;
+    this._aimRing.visible = false;
+    scene.add(this._aimRing);
+
+    this._aimPhase = 0;
+    this._m4 = new THREE.Matrix4();
+    this._q = new THREE.Quaternion();
+    this._sc = new THREE.Vector3();
+    this._p3 = new THREE.Vector3();
+    this._v3 = new THREE.Vector3();
+    this._d3 = new THREE.Vector3();
+  }
+
+  /**
+   * Draw the ghost of the shot `dir` would take from `origin`. Call every
+   * frame the trigger is held; call aimOff() when it isn't.
+   */
+  aim(dt, origin, dir, world) {
+    const H = 1 / 60;                                  // sim step — a ghost can be coarser than a ball
+    this._aimPhase = (this._aimPhase + dt * 7) % AIM_SPACING;
+
+    const p = this._p3.copy(origin);
+    const vel = this._v3.copy(dir).multiplyScalar(T.speed);
+    vel.y += T.lift;
+
+    let mark = 0.9 + this._aimPhase;                   // first dot clear of her arm
+    let dist = 0, bounces = 0, n = 0, life = T.life;
+    let endN = null;                                   // surface normal where the arc ends
+
+    while (life > 0) {
+      life -= H;
+      vel.y -= T.gravity * H;
+      const step = vel.length() * H;
+      p.addScaledVector(vel, H);
+
+      while (dist + step >= mark && n < AIM_DOTS) {
+        const back = (dist + step - mark) / Math.max(step, 1e-6);
+        this._d3.copy(p).addScaledVector(vel, -back * H);
+        this._sc.setScalar(1 - 0.55 * (n / AIM_DOTS)); // taper with distance
+        this._m4.compose(this._d3, this._q, this._sc);
+        this._aimDots.setMatrixAt(n++, this._m4);
+        mark += AIM_SPACING;
+      }
+      dist += step;
+
+      const wall = this._solidHit(world.level, p);
+      if (wall) {
+        if (bounces < T.bounces && vel.length() > 5) {
+          const dot = vel.x * wall.x + vel.z * wall.z;
+          vel.x -= 2 * dot * wall.x;
+          vel.z -= 2 * dot * wall.z;
+          vel.multiplyScalar(T.restitution);
+          bounces++;
+        } else { endN = _UP; break; }
+      }
+
+      const g = world.level.groundAt(p.x, p.z, Infinity, this._g || (this._g = {}));
+      if (p.y <= g.y + T.radius) {
+        if (bounces < T.bounces && vel.length() > 5) {
+          p.y = g.y + T.radius;
+          const nrm = g.normal || _UP;
+          const d = vel.dot(nrm);
+          vel.addScaledVector(nrm, -2 * d).multiplyScalar(T.restitution);
+          bounces++;
+        } else { endN = g.normal || _UP; break; }
+      }
+
+      const w = world.water.heightAt(p.x, p.z);
+      if (p.y <= w + T.radius * 0.5) { p.y = w + 0.03; endN = _UP; break; }
+    }
+
+    this._aimDots.count = n;
+    this._aimDots.instanceMatrix.needsUpdate = true;
+    this._aimDots.visible = n > 0;
+
+    if (endN) {
+      this._aimRing.position.copy(p).addScaledVector(endN, 0.05);
+      this._aimRing.quaternion.setFromUnitVectors(_Z, endN);   // torus axis is +Z
+      this._aimRing.visible = true;
+    } else {
+      this._aimRing.visible = false;
+    }
+  }
+
+  aimOff() {
+    this._aimDots.visible = false;
+    this._aimRing.visible = false;
   }
 
   fire(origin, dir) {

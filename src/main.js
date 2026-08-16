@@ -213,7 +213,6 @@ async function boot() {
     fps: document.getElementById('hud-fps'),
     gesture: document.getElementById('hud-gesture'),
     hint: document.getElementById('hud-hint'),
-    reticle: document.getElementById('reticle'),
     prompt: document.getElementById('prompt'),
     promptIcon: document.querySelector('#prompt use'),
     promptLabel: document.querySelector('.prompt-label'),
@@ -373,6 +372,16 @@ async function boot() {
         if (model.kick) model.kick();
         follow.addTrauma(0.045);
       }
+    }
+    // The aim ghost: while the trigger is down, the next shot's whole flight
+    // is drawn ahead in the world — same maths, same bounces — so aiming is
+    // reading the level instead of guessing at it. Nothing centre-screen.
+    if (shooting && !peggy.inWater) {
+      if (model.muzzleWorld) model.muzzleWorld(_v);
+      else _v.set(peggy.position.x, peggy.position.y + 1.0, peggy.position.z);
+      cannon.aim(dt, _v, aimVec, { level, water });
+    } else {
+      cannon.aimOff();
     }
     if (!aiming && !shooting) peggy.faceLock = null;
 
@@ -610,12 +619,8 @@ async function boot() {
       else if (peggy.state === State.SWIM) hint = 'TAP DIVE TO GO UNDER';
       hud.hint.textContent = hint;
 
-      // Reticle lights up when something is in hook range, and swells while
-      // the hook is being charged — so a hold reads as "something is happening"
-      // instead of as a dropped input.
       const aim = hook.aimDirection(_v);
       const target = level.findGrapplePoint(hook.handPosition(_v2), aim, 17, 0.28);
-      hud.reticle.classList.toggle('locked', !!target);
 
       // Light up the anchor she'd actually hook. Without this there is no way
       // to tell a throw that had no target from a throw that didn't fire —
@@ -631,8 +636,6 @@ async function boot() {
       const g = input.stickR.lastGesture;
       if (g) hud.gesture.textContent = g.toUpperCase();
       hud.gesture.classList.toggle('lit', !!g);
-      hud.reticle.classList.toggle('charging', input.hookCharge > 0.02);
-      hud.reticle.style.setProperty('--charge', input.hookCharge.toFixed(2));
 
       // The prompt rides the right stick — wherever the thumb last left it.
       hud.prompt.classList.toggle('hidden', !promptTarget);
