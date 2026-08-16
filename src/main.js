@@ -40,7 +40,16 @@ const THEME = WORLD === 'island' ? {
 } : {
   // the nebula: a violet dusk lit by a white star, stardust for a sea
   fogAir: 0x271b45, fogWater: 0x1d0f3a, fogDensity: 0.0030,
-  sky: { top: 0x07051a, horizon: 0x4a2b66, sunColor: 0xd8ecff, bands: 8 },
+  sky: {
+    top: 0x07051a, horizon: 0x4a2b66, sunColor: 0xd8ecff, bands: 8,
+    // clouds and the galaxy live in the dome shader — free, unlike sprites
+    nebulas: [
+      { dir: [-0.55, 0.28, -0.72], color: 0xc86bf0, power: 9, amp: 0.16 },
+      { dir: [0.68, 0.20, -0.62], color: 0x4be8d8, power: 12, amp: 0.10 },
+      { dir: [0.45, 0.32, 0.72], color: 0xf25ed3, power: 10, amp: 0.11 },
+    ],
+    band: { normal: [0.42, 0.62, 0.66], color: 0xd8cfff, power: 14, amp: 0.30 },
+  },
   water: { shallow: 0x7c5cf0, deep: 0x140b33, foam: 0xd9c8ff },
   terrain: { wet: 0x8a6bb0, sand: 0xcfa8e8, grass: 0x3fd8c2, rock: 0x5b4a80 },
   lights: {

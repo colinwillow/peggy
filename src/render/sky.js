@@ -23,6 +23,17 @@ const frag = /* glsl */`
   uniform vec3 uSunColor;
   uniform vec3 uSunDir;
   uniform float uBands;
+  // Nebula clouds painted INTO the dome: each is a soft radial glow around a
+  // direction. This costs nothing extra — the dome already shades every sky
+  // pixel once — where a screen-size transparent sprite costs a full screen
+  // of blending PER CLOUD (measured: 49fps with sprites, dome is free).
+  uniform vec3 uNebDir[3];
+  uniform vec3 uNebCol[3];
+  uniform vec2 uNebPrm[3];   // x: falloff power, y: amplitude
+  // ...and one galaxy band: a glowing great-circle arc.
+  uniform vec3 uBandN;
+  uniform vec3 uBandCol;
+  uniform vec2 uBandPrm;
   varying vec3 vWorldDir;
 
   void main() {
@@ -37,6 +48,12 @@ const frag = /* glsl */`
     stepped += smoothstep( 0.82, 1.0, frac ) / uBands;
 
     vec3 col = mix( uHorizon, uTop, stepped );
+
+    for ( int i = 0; i < 3; i++ ) {
+      col += uNebCol[i] * uNebPrm[i].y * pow( max( dot( d, uNebDir[i] ), 0.0 ), uNebPrm[i].x );
+    }
+    col += uBandCol * uBandPrm.y * pow( 1.0 - abs( dot( d, uBandN ) ), uBandPrm.x )
+         * smoothstep( -0.05, 0.25, d.y );
 
     // sun: a hard disc with one soft bloom ring, no smooth falloff
     float sd = dot( d, normalize( uSunDir ) );
@@ -57,6 +74,10 @@ export class Sky {
       sunColor = 0xfff0b8,
       sunDir = new THREE.Vector3(38, 60, 26).normalize(),
       bands = 7,
+      // up to three nebula glows: { dir: [x,y,z], color, power, amp }
+      nebulas = [],
+      // an optional galaxy band: { normal: [x,y,z], color, power, amp }
+      band = null,
       // Must sit comfortably INSIDE the camera's far plane. A dome larger than
       // far gets clipped, which shows up as black sky above the horizon and a
       // pale disc where the sphere meets the clip plane. The dome is re-centred
@@ -64,6 +85,13 @@ export class Sky {
       radius = 1200,
     } = opts;
 
+    const nebDir = [], nebCol = [], nebPrm = [];
+    for (let i = 0; i < 3; i++) {
+      const n = nebulas[i];
+      nebDir.push(n ? new THREE.Vector3(...n.dir).normalize() : new THREE.Vector3(0, 1, 0));
+      nebCol.push(new THREE.Color(n ? n.color : 0x000000));
+      nebPrm.push(new THREE.Vector2(n ? n.power : 8, n ? n.amp : 0));
+    }
     this.material = new THREE.ShaderMaterial({
       uniforms: {
         uTop: { value: new THREE.Color(top) },
@@ -71,6 +99,12 @@ export class Sky {
         uSunColor: { value: new THREE.Color(sunColor) },
         uSunDir: { value: sunDir.clone() },
         uBands: { value: bands },
+        uNebDir: { value: nebDir },
+        uNebCol: { value: nebCol },
+        uNebPrm: { value: nebPrm },
+        uBandN: { value: band ? new THREE.Vector3(...band.normal).normalize() : new THREE.Vector3(0, 1, 0) },
+        uBandCol: { value: new THREE.Color(band ? band.color : 0x000000) },
+        uBandPrm: { value: new THREE.Vector2(band ? band.power : 8, band ? band.amp : 0) },
       },
       vertexShader: vert,
       fragmentShader: frag,
