@@ -410,6 +410,53 @@ const out = await page.evaluate(() => {
     r.groundHook.releasedToAir = P.state === 'air';
   }
 
+  // ── jump taps unhook, and the stick pumps a dead swing ──────────────────
+  // The old complaint, pinned: hanging from the rope and tapping jump did
+  // nothing. Now jump IS a release. And from a dead hang, holding the move
+  // stick must feed energy into the pendulum.
+  {
+    const latchSwing = () => {
+      P.teleport(-4, L.terrainHeight(-4, 24) + 0.4, 24);
+      P.facing = Math.PI;
+      F.targetYaw = F.yaw = P.facing + Math.PI;
+      setMove(0, 0); step(90);
+      F.update(1 / 120, P, { x: 0, y: 0, mag: 0 });
+      press('hook'); step(1); release('hook');
+      for (let i = 0; i < 200 && H.state === 'flying'; i++) step(1);
+      return H.state === 'swinging';
+    };
+
+    const latched = latchSwing();
+    step(60);
+    press('jump'); step(2); release('jump');
+    r.jumpUnhook = {
+      latched,
+      released: H.state !== 'swinging',
+      airborne: P.state === 'air',
+    };
+    step(300);   // fall, land, settle
+
+    const latched2 = latchSwing();
+    step(120);
+    P.velocity.set(0, 0, 0);          // force a dead hang
+    step(30);
+    const rest = Math.hypot(P.velocity.x, P.velocity.z);
+    // Hold forward and track the PEAK: a pendulum's instantaneous speed dips
+    // to zero at every apex, so a single end-sample can catch the wrong beat.
+    setMove(0, 1);
+    let pumped = 0;
+    for (let i = 0; i < 200; i++) { step(1); pumped = Math.max(pumped, Math.hypot(P.velocity.x, P.velocity.z)); }
+    setMove(0, 0);
+    r.swingPump = {
+      latched: latched2,
+      rest: +rest.toFixed(2),
+      pumped: +pumped.toFixed(2),
+      grew: pumped > rest + 1.5 && pumped > 2.5,
+    };
+    press('jump'); step(2); release('jump');
+    step(300);
+  }
+
   // ── double jump ─────────────────────────────────────────────────────────
   {
     P.teleport(0, L.terrainHeight(0, 0) + 0.5, 0);
@@ -671,6 +718,8 @@ const bools = [
   ['swing actually oscillates',         out.groundHook.oscillates],
   ['rope shortened to clear ground',    out.groundHook.ropeClearsGround],
   ['releasing throws her into the air', out.groundHook.releasedToAir],
+  ['jump tap releases the swing',       out.jumpUnhook.latched && out.jumpUnhook.released && out.jumpUnhook.airborne],
+  ['the stick pumps a dead hang',       out.swingPump.latched && out.swingPump.grew],
   ['double jump fires mid-air',         out.doubleJump.fired],
   ['third air jump is blocked',         out.doubleJump.thirdBlocked],
   ['air jump refreshes on landing',     out.doubleJump.refreshed],

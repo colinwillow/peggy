@@ -96,6 +96,34 @@ html, body {
   box-shadow: 0 0 22px rgba(83, 215, 200, 0.55);
 }
 
+/* ── WEAPON SWAP BUTTON ──────────────────────────────────────────────────
+   Rides the right edge, above the stick's reach. Shows the CURRENT weapon;
+   tapping holsters it and draws the other one. */
+#weapon-btn {
+  position: fixed;
+  right: calc(var(--safe-r) + 14px);
+  bottom: 46vh;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  border: 2.5px solid rgba(244, 230, 200, 0.4);
+  background: radial-gradient(circle at 38% 34%, rgba(255,255,255,0.14), rgba(20,12,32,0.55) 75%);
+  box-shadow: 0 0 18px rgba(0, 0, 0, 0.3);
+  z-index: 7;
+  touch-action: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #f4e6c8;
+  transition: transform 120ms cubic-bezier(.2,.9,.3,1.4);
+}
+#weapon-btn:active { transform: scale(0.88); }
+#weapon-btn .wi { width: 30px; height: 30px; }
+#weapon-btn .wi-hook { display: none; }
+#weapon-btn.hook .wi-cannon { display: none; }
+#weapon-btn.hook .wi-hook { display: block; color: #ffd97a; }
+
 /* ── HUD ─────────────────────────────────────────────────────────────────
    Dev readout, top-left, deliberately plain. This is scaffolding for tuning
    the controller, not the shipping HUD. */
@@ -394,6 +422,7 @@ body.touch .legend-kbm { display: none; }
 /* While the title holds the screen, the game chrome does not exist. */
 body.titling #hud,
 body.titling #controls-legend,
+body.titling #weapon-btn,
 body.titling #prompt,
 body.titling .stick-zone,
 body.titling .stick-ring,

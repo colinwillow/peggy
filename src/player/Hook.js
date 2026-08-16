@@ -63,6 +63,7 @@ export class Hook {
     this.hauled = null;                  // the object we're reeling in
     this.ropeLength = 0;
     this.swingAngleVel = 0;
+    this.fires = 0;                      // lifetime throw count, for tests
 
     this._dir = new THREE.Vector3();
     this._tmp = new THREE.Vector3();
@@ -111,7 +112,7 @@ export class Hook {
       case HookState.IDLE: this._idle(buttons); break;
       case HookState.FLYING: this._flying(dt); break;
       case HookState.REELING: this._reeling(dt, buttons); break;
-      case HookState.HAULING: this._hauling(dt); break;
+      case HookState.HAULING: this._hauling(dt, buttons); break;
       case HookState.SWINGING: this._swinging(dt, buttons, move); break;
       case HookState.RETRACTING: this._retracting(dt); break;
     }
@@ -123,6 +124,7 @@ export class Hook {
     this._dir.copy(this.aimDirection());
     this.state = HookState.FLYING;
     this._flightDist = 0;
+    this.fires++;
     this.emit('fire', {});
 
     // Resolve the target NOW, not on impact, and then fly straight at it.
@@ -280,8 +282,9 @@ export class Hook {
     this.head.copy(this.anchor.pos);
     const dist = this.peggy.position.distanceTo(this.anchor.pos);
 
-    // Arrived, or the player let go.
-    if (dist < HOOK.reelArriveDist || buttons.hook.pressed) {
+    // Arrived, or the player let go — and a JUMP tap is letting go too. The
+    // rope must never hold someone who is mashing jump to get off it.
+    if (dist < HOOK.reelArriveDist || buttons.hook.pressed || buttons.jump.pressed) {
       this._release(dist < HOOK.reelArriveDist ? 0.35 : 0.8);
       this.emit('reelEnd', {});
     }
@@ -289,8 +292,16 @@ export class Hook {
 
   // ── haul: pull the object to her ────────────────────────────────────────
 
-  _hauling(dt) {
+  _hauling(dt, buttons) {
     const h = this.hauled;
+    // jump (or the hook button) drops the catch mid-haul
+    if (buttons && (buttons.hook.pressed || buttons.jump.pressed)) {
+      h.held = false;
+      this.hauled = null;
+      this.state = HookState.RETRACTING;
+      this.emit('haulEnd', {});
+      return;
+    }
     const hand = this.handPosition(this._tmp);
     this._dir.subVectors(hand, h.position);
     const dist = this._dir.length();
@@ -321,12 +332,26 @@ export class Hook {
     // Gravity acts as normal; the rope constraint is what makes it an arc.
     v.y -= HOOK.swingGravity * dt;
 
-    // Steering: the stick adds tangential force, which is how a real swing is
-    // pumped. It's not a direct velocity set — you're adding energy to a
-    // pendulum, so timing matters and a good swing rewards rhythm.
+    // Pumping. A constant stick force can't pump a pendulum — it only tilts
+    // the equilibrium and leaves her hanging at an angle (measured: speed
+    // plateaued near 2 m/s and decayed). Energy must be fed ALONG the
+    // motion: the stick's component in the direction she's travelling
+    // accelerates her, and the opposing half of the arc is left alone
+    // rather than braked. So holding forward builds a swing from nothing,
+    // and alternating with the arc — real pumping — builds it faster.
     if (wishMag > 0.1) {
-      v.x += wishX * 15.0 * dt;
-      v.z += wishZ * 15.0 * dt;
+      const sp = Math.hypot(v.x, v.z);
+      if (sp < 0.8) {
+        // a dead hang: the stick starts the swing toward itself
+        v.x += wishX * 10.0 * dt;
+        v.z += wishZ * 10.0 * dt;
+      } else if (v.length() < 16) {
+        const align = (wishX * v.x + wishZ * v.z) / sp;
+        if (align > 0) {
+          v.x += (v.x / sp) * align * 16.0 * dt;
+          v.z += (v.z / sp) * align * 16.0 * dt;
+        }
+      }
     }
 
     p.addScaledVector(v, dt);
@@ -386,9 +411,11 @@ export class Hook {
       );
     }
 
-    if (buttons.hook.pressed) {
-      // Release with a boost, so a well-timed let-go at the bottom of the arc
-      // throws you properly.
+    // Hook button OR a jump tap lets go — with a boost, so a well-timed
+    // release at the bottom of the arc throws you properly. Jump releasing
+    // is non-negotiable: hanging from a rope that ignores the jump button
+    // reads as being stuck, not as swinging.
+    if (buttons.hook.pressed || buttons.jump.pressed) {
       this._release(HOOK.swingReleaseBoost);
       this.emit('swingRelease', {});
     }

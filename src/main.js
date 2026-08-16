@@ -224,11 +224,11 @@ async function boot() {
     new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()
   );
   const aimVec = new THREE.Vector3();
-  let aimRefYaw = 0;       // camera yaw frozen at the frame the aim-hold engaged
-  let wasAiming = false;
-  let shootRefYaw = 0;     // same idea, for the trigger
+  let shootRefYaw = 0;     // camera yaw frozen at the frame the trigger engaged
   let wasShooting = false;
   let shootCd = 0;
+  let weapon = 'cannon';   // what the right stick drives: 'cannon' | 'hook'
+  let stickWeapon = 'cannon';  // the weapon at the moment the stick engaged
 
   // ── input + hud ──────────────────────────────────────────────────────────
   const dom = {
@@ -237,6 +237,7 @@ async function boot() {
     knobL: document.getElementById('knob-left'),
     ringL: document.getElementById('ring-left'),
     zoneR: document.getElementById('zone-right'),
+    weaponBtn: document.getElementById('weapon-btn'),
     knobR: document.getElementById('knob-right'),
     ringR: document.getElementById('ring-right'),
     btnHook: document.getElementById('btn-hook'),
@@ -252,6 +253,7 @@ async function boot() {
     fps: document.getElementById('hud-fps'),
     gesture: document.getElementById('hud-gesture'),
     hint: document.getElementById('hud-hint'),
+    weaponBtn: document.getElementById('weapon-btn'),
     prompt: document.getElementById('prompt'),
     promptIcon: document.querySelector('#prompt use'),
     promptLabel: document.querySelector('.prompt-label'),
@@ -357,51 +359,40 @@ async function boot() {
       promptTarget = null;
     }
 
-    // ── hook aim-hold: the twin-stick posture ──────────────────────────────
-    // While the hold is active the stick steers the throw, she FACES the held
-    // direction, and the camera works its way around behind it — so the hold
-    // doubles as a look control: hold forward and pull the move stick back to
-    // run backwards, hold right while running left, and so on. The strafe
-    // animations key off the same lock.
-    //
-    // The stick direction is read against the camera yaw FROZEN at the moment
-    // the hold engaged. Reading the live yaw would feed back — the camera
-    // chases the aim, the aim re-derives from the camera — and a held diagonal
-    // would orbit forever instead of settling.
-    //
-    // The override is set BEFORE hook.update and left in place across the
-    // release frame — the stick zeroes on lift, so without the latch every
-    // steered throw would revert to the camera heading at the last instant.
-    // Hook clears it when it fires.
-    const aiming = !title.active && input.hookAim.active;
-    if (aiming && !wasAiming) aimRefYaw = follow.yaw;
-    wasAiming = aiming;
-    if (aiming && input.hookAim.mag > 0.30) {
-      const c = Math.cos(aimRefYaw), sn = Math.sin(aimRefYaw);
-      const sx = input.hookAim.x, sy = -input.hookAim.y;   // screen y is down
-      aimVec.set(sx * c - sy * sn, 0, -sx * sn - sy * c).normalize();
-      hook.aimOverride = aimVec;
-      peggy.faceLock = Math.atan2(aimVec.x, aimVec.z);
-      follow.attract(peggy.faceLock);
-    } else if (!aiming && !input.hook.pressed && !hook.active) {
-      hook.aimOverride = null;
+    // ── weapon swap ────────────────────────────────────────────────────────
+    // One hand, two tools: the cannon and the harpoon-hook. The button (or X,
+    // or pad Y) swaps which one the right stick drives. Not while the stick
+    // is down or the rope is out — a tool mid-verb is not a tool you can
+    // holster.
+    if (input.swap.pressed && !hook.active && !input.shoot.active && !title.active) {
+      weapon = weapon === 'cannon' ? 'hook' : 'cannon';
+      hud.weaponBtn.classList.toggle('hook', weapon === 'hook');
+      cannon.lockOff();
     }
 
     // ── the trigger ────────────────────────────────────────────────────────
-    // Push the right stick and three things happen at once, immediately: she
-    // faces the pushed direction, the camera starts swinging around behind
-    // it, and the hand cannon fires — first round instantly, then on a
-    // cadence while held. Same frozen-reference-yaw trick as the aim-hold:
-    // read the live camera and the chasing camera re-aims the stick forever.
-    const shooting = !title.active && input.shoot.active && !hook.active;
-    if (shooting && !wasShooting) { shootRefYaw = follow.yaw; shootCd = 0; }
-    wasShooting = shooting;
-    if (shooting) {
+    // Push the right stick and she faces the pushed direction while the
+    // camera swings around behind it. What the push MEANS depends on the
+    // weapon: the cannon fires on a cadence while held; the hook LOADS while
+    // held — arm up, harpoon in the blaster — and fires on RELEASE, so a
+    // hold is how you walk around aiming a throw. Aim reads against the
+    // camera yaw FROZEN at engage: read the live camera and the chasing
+    // camera re-aims the stick forever.
+    const stickHeld = !title.active && input.shoot.active && !hook.active;
+    if (stickHeld && !wasShooting) { shootRefYaw = follow.yaw; shootCd = 0; stickWeapon = weapon; }
+    const releasedHook = wasShooting && !stickHeld && stickWeapon === 'hook'
+      && !hook.active && !title.active;
+    wasShooting = stickHeld;
+    const shooting = stickHeld && weapon === 'cannon';
+    const hookAiming = stickHeld && weapon === 'hook';
+    if (stickHeld) {
       const c = Math.cos(shootRefYaw), sn = Math.sin(shootRefYaw);
       const sx = input.shoot.x, sy = -input.shoot.y;
       aimVec.set(sx * c - sy * sn, 0, -sx * sn - sy * c).normalize();
       peggy.faceLock = Math.atan2(aimVec.x, aimVec.z);
       follow.attract(peggy.faceLock);
+    }
+    if (shooting) {
       // Soft lock: a crab or barrel inside the stick's cone gets the gold
       // ring, and shots steer to it — the Robits assist. Nothing centre-screen.
       const lock = peggy.inWater ? (cannon.lockOff(), null)
@@ -420,7 +411,20 @@ async function boot() {
     } else {
       cannon.lockOff();
     }
-    if (!aiming && !shooting) peggy.faceLock = null;
+    if (hookAiming) {
+      // The override is set BEFORE hook.update and left in place across the
+      // release frame — the stick zeroes on lift, so without the latch every
+      // steered throw would revert to the camera heading at the last instant.
+      // Hook clears it when the throw fires.
+      hook.aimOverride = aimVec;
+    } else if (releasedHook) {
+      // The release IS the trigger: synthesize the press the Hook listens
+      // for. aimVec still holds the last steered direction.
+      input.hook.pressed = true;
+    } else if (!hook.active && !input.hook.pressed) {
+      hook.aimOverride = null;
+    }
+    if (!shooting && !hookAiming) peggy.faceLock = null;
 
     const drive = title.active ? title.input : input;
     peggy.update(dt, drive.move, drive, follow.yaw);
@@ -429,7 +433,10 @@ async function boot() {
     follow.update(dt, peggy, title.active ? title.look : input.look);
 
     // ── aim arc + lock-on ──────────────────────────────────────────────────
-    if (aiming && !hook.active) {
+    // Only while the harpoon is LOADED (stick held in hook mode): the dashed
+    // arc shows the throw, and the gold disc marks the anchor the assist
+    // would take. Release fires along exactly what the picture promised.
+    if (hookAiming && !hook.active) {
       const hand = hook.handPosition(_v);
       const dir = hook.aimDirection(_v2);
       const target = level.findGrapplePoint(hand, dir, 17, 0.28);
@@ -555,7 +562,8 @@ async function boot() {
       hookActive: hook.active,
       hookCharge: title.active ? 0 : input.hookCharge,
       faceLocked: peggy.faceLock != null,
-      shooting,
+      // the arm comes up for the cannon AND for the loaded harpoon
+      shooting: shooting || hookAiming,
     });
 
     ambience.update(dt, time);
@@ -583,6 +591,14 @@ async function boot() {
       );
       hookHead.position.copy(_v2);
       hookHead.lookAt(_v);
+    } else if (hookAiming && model.muzzleWorld) {
+      // the harpoon sits LOADED in the blaster while the stick is held — the
+      // visible promise of what release will do
+      rope.visible = false;
+      hookHead.visible = true;
+      model.muzzleWorld(_v);
+      hookHead.position.copy(_v);
+      hookHead.lookAt(_v2.copy(_v).add(aimVec));
     } else {
       rope.visible = false;
       hookHead.visible = false;

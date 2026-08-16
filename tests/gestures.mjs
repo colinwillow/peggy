@@ -171,6 +171,44 @@ for (const [name, d, ms, hold, jit, want, cam] of CASES) {
     + `melee=${r.melee} shots=${r.shots} jump=${r.jump} cam=${r.yaw.toFixed(3)}  want=${want}/${cam}`);
 }
 
+// ── the weapon swap ─────────────────────────────────────────────────────────
+// Tap the button: the SAME push+hold now loads the harpoon and fires it on
+// RELEASE — zero cannon shots. Tap it again: the cannon is back.
+{
+  await reset();
+  await page.evaluate(() => {
+    document.getElementById('weapon-btn')
+      .dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+  });
+  const fires0 = await page.evaluate(() => window.hook.fires);
+  // the tap lands on the NEXT sampled frame — poll for the class, don't race it
+  const r1 = await page.waitForFunction(
+    () => document.getElementById('weapon-btn').classList.contains('hook'),
+    null, { timeout: 3000 }
+  ).then(() => true).catch(() => false);
+  const g1 = await gesture(110, 400, 500, 0);
+  const fires1 = await page.evaluate(() => window.hook.fires);
+  const hookOk = r1 && g1.shots === 0 && fires1 === fires0 + 1;
+  if (!hookOk) failed++;
+  rows.push(`  ${hookOk ? 'PASS' : 'FAIL'}  ${'swap: hold+release throws the hook'.padEnd(34)} `
+    + `btn=${r1} shots=${g1.shots} throws=${fires1 - fires0}  want=throw/no-shots`);
+
+  await reset();
+  await page.evaluate(() => {
+    document.getElementById('weapon-btn')
+      .dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+  });
+  await page.waitForFunction(
+    () => !document.getElementById('weapon-btn').classList.contains('hook'),
+    null, { timeout: 3000 }
+  ).catch(() => {});
+  const g2 = await gesture(110, 400, 500, 0);
+  const backOk = g2.shots >= 1;
+  if (!backOk) failed++;
+  rows.push(`  ${backOk ? 'PASS' : 'FAIL'}  ${'swap back: the cannon returns'.padEnd(34)} `
+    + `shots=${g2.shots}  want=shots`);
+}
+
 await browser.close();
 console.log('');
 console.log(rows.join('\n'));

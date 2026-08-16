@@ -33,8 +33,10 @@
 //   jump      tap RIGHT stick          / Space  / A
 //   melee     flick RIGHT stick        / RMB, V / X      — cutlass swipe
 //   shoot     PUSH RIGHT stick         / hold LMB / RT   — she turns, camera
-//             follows, cannon fires that way while held
-//   hook      F (keyboard only, for now — being redesigned off the stick)
+//             follows; the cannon fires while held, the HOOK loads while held
+//             and fires on release (main.js decides which, per the weapon)
+//   swap      weapon button            / X      / Y      — cannon <-> hook
+//   hook      F / RB — direct throw along the camera, kept for kbm and pad
 
 import { Joystick } from './Joystick.js';
 import { clamp } from '../core/math.js';
@@ -61,6 +63,7 @@ export class Input {
     this.dive = new Button();
     this.recentre = new Button();
     this.pause = new Button();
+    this.swap = new Button();
     /** Direction of the last melee flick, screen-space radians. */
     this.meleeAngle = 0;
     /** 0..1 while the hook is being charged, for the reticle. */
@@ -104,6 +107,17 @@ export class Input {
       this.lastSource = 'touch';
     };
     this.stickR.onHoldRelease = () => { this.hook.tap(); this.lastSource = 'touch'; };
+
+    // The one on-screen button, and it earns its place: weapon swap is a
+    // holster action, not a combat verb — it happens between fights, so it
+    // can live off the stick without costing a thumb mid-play.
+    if (dom.weaponBtn) {
+      dom.weaponBtn.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        this.swap.tap();
+        this.lastSource = 'touch';
+      });
+    }
 
     this._park();
     addEventListener('resize', () => this._park());
@@ -173,7 +187,7 @@ export class Input {
     const swipeDx = this.stickR.poll();
 
     let mx = 0, my = 0, lx = 0, ly = 0, dxPx = 0;
-    let jump = false, hook = false, melee = false, dive = false, recentre = false, pause = false;
+    let jump = false, hook = false, melee = false, dive = false, recentre = false, pause = false, swap = false;
 
     // touch sticks — screen y is down, intent y is forward, hence the negation
     if (this.stickL.held) {
@@ -211,6 +225,7 @@ export class Input {
     melee = melee || !!k.KeyV;
     recentre = recentre || !!k.KeyR;
     pause = pause || !!k.Escape;
+    swap = swap || !!k.KeyX;
 
     // mouse look — the same swipe pixels as touch, scaled for a wrist
     if (this._mouse.locked) {
@@ -236,6 +251,7 @@ export class Input {
       if (btn(2)) { melee = true; this.lastSource = 'pad'; }        // X
       if (btn(7)) { shooting = true; shootX = 0; shootY = -1; this.lastSource = 'pad'; } // RT
       if (btn(5)) { hook = true; this.lastSource = 'pad'; }         // RB keeps the hook
+      if (btn(3)) { swap = true; this.lastSource = 'pad'; }         // Y swaps weapons
       if (btn(10)) recentre = true;   // L3
       if (btn(9)) pause = true;
     }
@@ -264,6 +280,7 @@ export class Input {
     this.dive.set(dive);
     this.recentre.set(recentre);
     this.pause.set(pause);
+    this.swap.set(swap);
 
     this.jump.edge();
     this.hook.edge();
@@ -271,5 +288,6 @@ export class Input {
     this.dive.edge();
     this.recentre.edge();
     this.pause.edge();
+    this.swap.edge();
   }
 }
