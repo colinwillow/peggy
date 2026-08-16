@@ -18,7 +18,7 @@
 
 import { chromium } from 'playwright';
 
-const URL = process.argv[2] || 'http://localhost:8123/index.html';
+const URL = process.argv[2] || 'http://localhost:8123/index.html?world=island';
 
 const browser = await chromium.launch({
   executablePath: '/opt/pw-browsers/chromium',

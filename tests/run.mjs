@@ -6,7 +6,9 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 
 const PORT = process.env.PEGGY_PORT || 8123;
-const BASE = `http://localhost:${PORT}/index.html`;
+// The suites run against the TEST ISLAND — every expectation is written to
+// its geometry. The nebula world is what humans get by default.
+const BASE = `http://localhost:${PORT}/index.html?world=island`;
 
 function serve() {
   const p = spawn('python3', ['-m', 'http.server', String(PORT)], {

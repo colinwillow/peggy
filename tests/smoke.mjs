@@ -11,7 +11,7 @@
 // Screenshots land in /tmp/peggy-shots.
 import { chromium } from 'playwright';
 
-const URL = process.argv[2] || 'http://localhost:8123/index.html';
+const URL = process.argv[2] || 'http://localhost:8123/index.html?world=island';
 const SHOTS = process.argv[3] || '/tmp/peggy-shots';
 
 const browser = await chromium.launch({

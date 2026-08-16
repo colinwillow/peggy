@@ -38,6 +38,7 @@ const FRAG = /* glsl */`
   uniform float uEdge;       // relative depth step that counts as an edge
   uniform float uFade;       // metres at which lines have fully faded
   uniform vec3 uInk;
+  uniform float uTint;       // 0 = flat off-black ink, 1 = the surface's own colour, pulled dark
 
   float viewZ( vec2 uv ) {
     float d = texture2D( tDepth, uv ).x;
@@ -64,7 +65,14 @@ const FRAG = /* glsl */`
     float edge = smoothstep( uEdge, uEdge * 1.6, rel );
     edge *= clamp( 1.0 - c / uFade, 0.0, 1.0 );
 
-    vec3 outCol = mix( col.rgb, uInk, edge * 0.9 );
+    // Coloured line art: the ink is the near surface's own colour squared —
+    // darker AND more saturated, like lining with the fill's own pencil —
+    // rather than one global black. uTint dials between that and the flat
+    // off-black plum. (col is linear here; squaring in linear space is what
+    // gives the saturation push.)
+    vec3 localInk = col.rgb * col.rgb * 0.42 + col.rgb * 0.05;
+    vec3 inkCol = mix( uInk, localInk, uTint );
+    vec3 outCol = mix( col.rgb, inkCol, edge * 0.9 );
     // The sRGB target is HARDWARE-DECODED when sampled, so outCol is linear
     // here — and the screen wants sRGB. Without this encode the whole game
     // went dark and oversaturated the moment it rendered offscreen.
@@ -102,6 +110,7 @@ export class InkPass {
         uEdge: { value: opts.edge ?? 0.018 },
         uFade: { value: 90 },
         uInk: { value: new THREE.Color(opts.ink ?? 0x1c1424) },
+        uTint: { value: opts.tint ?? 0.8 },
       },
       vertexShader: VERT,
       fragmentShader: FRAG,

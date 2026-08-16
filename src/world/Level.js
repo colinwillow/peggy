@@ -386,16 +386,18 @@ export class Level {
    * Build a mesh from the island field. Same height function as collision, so
    * the two can't drift apart.
    */
-  buildTerrainMesh(material, { size = 420, segments = 300 } = {}) {
+  buildTerrainMesh(material, { size = 420, segments = 300, palette = {} } = {}) {
     const geo = new THREE.PlaneGeometry(size, size, segments, segments);
     geo.rotateX(-Math.PI / 2);
     const pos = geo.attributes.position;
     const colors = new Float32Array(pos.count * 3);
 
-    const sand = new THREE.Color(0xf6e7b2);
-    const grass = new THREE.Color(0x58cd63);
-    const rock = new THREE.Color(0x9a8b7a);
-    const wet = new THREE.Color(0xdcc896);
+    // Height bands, overridable per world — an alien planet is the same
+    // terrain wearing different colours.
+    const sand = new THREE.Color(palette.sand ?? 0xf6e7b2);
+    const grass = new THREE.Color(palette.grass ?? 0x58cd63);
+    const rock = new THREE.Color(palette.rock ?? 0x9a8b7a);
+    const wet = new THREE.Color(palette.wet ?? 0xdcc896);
     const tmp = new THREE.Color();
 
     for (let i = 0; i < pos.count; i++) {

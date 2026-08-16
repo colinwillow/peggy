@@ -20,7 +20,9 @@
 // expectations deliberately; don't loosen them until they pass.
 import { chromium } from 'playwright';
 
-const URL = process.argv[2] || 'http://localhost:8123/index.html';
+// The tests pin ?world=island: every expectation below is written against
+// the test island's geometry. The nebula world is the default for humans.
+const URL = process.argv[2] || 'http://localhost:8123/index.html?world=island';
 
 const browser = await chromium.launch({
   executablePath: '/opt/pw-browsers/chromium',
@@ -545,7 +547,7 @@ const out = await page.evaluate(() => {
   // as many frames as we give them.
   {
     const C = window.cannon, loose = window.loose, W = window.water;
-    const stepC = (n) => { for (let i = 0; i < n; i++) C.update(DT, { level: L, water: W, crabs: [], loose }); };
+    const stepC = (n) => { for (let i = 0; i < n; i++) C.update(DT, { level: L, water: W, crabs: window.crabs, loose }); };
     const barrel = loose[0];
     const keep = { pos: barrel.position.clone(), hp: barrel.hp };
 
@@ -580,13 +582,30 @@ const out = await page.evaluate(() => {
     r.cannonWorld.ricochetMaxZ = +maxZ.toFixed(2);
     r.cannonWorld.ricochet = reversed && maxZ < -6.8;
 
-    // the aim ghost: a preview of the same flight — dots along the arc and a
-    // ring where the ball spends itself
-    C.aim(1 / 60, new THREE.Vector3(4, L.terrainHeight(4, -30) + 1, -33), new THREE.Vector3(0, 0, 1), { level: L, water: W });
-    r.cannonWorld.ghostDots = C._aimDots.count;
-    r.cannonWorld.ghostRing = C._aimRing.visible;
-    C.aimOff();
-    r.cannonWorld.ghostHidden = !C._aimDots.visible && !C._aimRing.visible;
+    // the lock-on assist: push the stick toward a crab and it gets the ring;
+    // push away and there is nothing
+    {
+      const crab = window.crabs[0];                    // home (14, -2)
+      const from = new THREE.Vector3(crab.position.x, crab.position.y, crab.position.z + 8);
+      const toward = C.acquire(1 / 60, from, new THREE.Vector3(0, 0, -1), { crabs: window.crabs, loose });
+      r.cannonWorld.lockFound = !!toward && Math.abs(toward.x - crab.position.x) < 0.01;
+      r.cannonWorld.lockRingShown = C._ring.visible;
+      const away = C.acquire(1 / 60, from, new THREE.Vector3(0, 0, 1), { crabs: window.crabs, loose });
+      r.cannonWorld.lockRejectsOffCone = !away && !C._ring.visible;
+
+      // an assisted shot steers to the lock point and actually connects
+      const hp0 = crab.hp;
+      const lock = C.acquire(1 / 60, from, new THREE.Vector3(0, 0, -1), { crabs: window.crabs, loose });
+      const dir = new THREE.Vector3(lock.x, lock.y, lock.z).sub(new THREE.Vector3(from.x, from.y + 1, from.z)).normalize();
+      C.fire(new THREE.Vector3(from.x, from.y + 1, from.z), dir);
+      stepC(90);
+      r.cannonWorld.assistHits = crab.hp === hp0 - 1;
+      C.lockOff();
+      // put the crab back the way the crab section expects to find it
+      crab.dead = false; crab.hp = 2; crab.vel.set(0, 0, 0);
+      crab.position.copy(crab.home); crab.root.visible = true; crab.root.scale.setScalar(1);
+      crab._respawnT = 0; crab._popT = 0; crab.justDied = false;
+    }
 
     // put the barrel back so nothing downstream sees a broken one
     barrel.dead = false; barrel.hp = keep.hp; barrel._popT = 0; barrel._respawnT = 0; barrel._growT = 0;
@@ -669,9 +688,10 @@ const bools = [
   ['two balls stave the barrel in',     out.cannonWorld.twoHitsBreak],
   ['a broken barrel pays out coins',    out.cannonWorld.coinsPaid === 2],
   ['cannonballs ricochet off walls',    out.cannonWorld.ricochet],
-  ['aim ghost draws a dotted arc',      out.cannonWorld.ghostDots >= 6],
-  ['aim ghost marks the landing',       out.cannonWorld.ghostRing === true],
-  ['aim ghost hides when released',     out.cannonWorld.ghostHidden],
+  ['shoot lock finds a crab in the cone', out.cannonWorld.lockFound],
+  ['...and shows the ring on it',       out.cannonWorld.lockRingShown],
+  ['no lock outside the cone',          out.cannonWorld.lockRejectsOffCone],
+  ['an assisted shot connects',         out.cannonWorld.assistHits],
   ['crabs spawn',                       out.crab.count >= 4],
   ['a melee hit costs a crab hp',       out.crab.lostHp],
   ['...and sends it flying',            out.crab.launched],

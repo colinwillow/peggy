@@ -14,6 +14,7 @@ import { Sky } from './render/sky.js';
 import { Water } from './render/water.js';
 import { buildTestIsland } from './world/testIsland.js';
 import { buildAmbience } from './world/ambience.js';
+import { buildNebulaWorld, buildNebulaAmbience } from './world/nebulaWorld.js';
 import { Peggy, State } from './player/Peggy.js';
 import { Hook, HookState } from './player/Hook.js';
 import { createPeggyModel } from './player/PeggyModel.js';
@@ -24,11 +25,36 @@ import { FollowCamera } from './camera/FollowCamera.js';
 
 const SUN_DIR = new THREE.Vector3(38, 60, 26).normalize();
 
+// ── worlds ──────────────────────────────────────────────────────────────────
+// Two worlds share one engine: the test island (every regression test lives
+// there — load it with ?world=island) and the Maroon Nebula, the space-pirate
+// world, which is what everyone else gets. A world is a builder plus a theme:
+// same sun direction, same physics, different sky.
+const WORLD = /[?&]world=island/.test(location.search) ? 'island' : 'nebula';
+const THEME = WORLD === 'island' ? {
+  fogAir: 0xbfe9ff, fogWater: 0x1a6f8f, fogDensity: 0.0032,
+  sky: { top: 0x2f86e0, horizon: 0xcbeeff, sunColor: 0xfff0b8 },
+  water: { shallow: 0x5ce9d1, deep: 0x0d64a2, foam: 0xf7feff },
+  terrain: {},
+  lights: {},
+} : {
+  // the nebula: a violet dusk lit by a white star, stardust for a sea
+  fogAir: 0x271b45, fogWater: 0x1d0f3a, fogDensity: 0.0030,
+  sky: { top: 0x07051a, horizon: 0x4a2b66, sunColor: 0xd8ecff, bands: 8 },
+  water: { shallow: 0x7c5cf0, deep: 0x140b33, foam: 0xd9c8ff },
+  terrain: { wet: 0x8a6bb0, sand: 0xcfa8e8, grass: 0x3fd8c2, rock: 0x5b4a80 },
+  lights: {
+    keyColor: 0xe8e6ff, keyIntensity: 1.35,
+    skyColor: 0x8a7ccf, groundColor: 0x3c2a55, hemiIntensity: 0.72,
+    fillColor: 0xff7ec2, fillIntensity: 0.38,
+  },
+};
+
 // Fog colours for above and below the surface. Swapping these on the camera's
 // underwater flag is what makes diving feel like a different place rather than
 // the same scene with a blue plane over the lens.
-const FOG_AIR = new THREE.Color(0xbfe9ff);
-const FOG_WATER = new THREE.Color(0x1a6f8f);
+const FOG_AIR = new THREE.Color(THEME.fogAir);
+const FOG_WATER = new THREE.Color(THEME.fogWater);
 
 async function boot() {
   const canvas = document.getElementById('game');
@@ -49,7 +75,7 @@ async function boot() {
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
   const scene = new THREE.Scene();
-  scene.fog = new THREE.FogExp2(FOG_AIR.getHex(), 0.0032);
+  scene.fog = new THREE.FogExp2(FOG_AIR.getHex(), THEME.fogDensity);
 
   // Screen-space outlines. ?noink falls back to the raw render.
   const ink = /noink/.test(location.search) ? null : new InkPass(renderer);
@@ -61,24 +87,27 @@ async function boot() {
   const lights = setupLights(scene, {
     shadowExtent: QUALITY.shadowExtent,
     shadowMapSize: QUALITY.shadowMapSize,
+    ...THEME.lights,
   });
   lights.key.position.copy(SUN_DIR).multiplyScalar(90);
 
-  const sky = new Sky(scene, { sunDir: SUN_DIR });
+  const sky = new Sky(scene, { sunDir: SUN_DIR, ...THEME.sky });
   const water = new Water(scene, renderer, {
     level: 0, sunDir: SUN_DIR,
     size: QUALITY.waterSize,
     segments: QUALITY.waterSegments,
     depthScale: QUALITY.waterDepthScale,
+    ...THEME.water,
   });
 
-  const { level, props, spawn, loose, stairTops, updateLoose, coins, addCoin, crabs } = buildTestIsland(scene);
-  const ambience = buildAmbience(scene, water);
+  const buildWorld = WORLD === 'island' ? buildTestIsland : buildNebulaWorld;
+  const { level, props, spawn, loose, stairTops, updateLoose, coins, addCoin, crabs } = buildWorld(scene);
+  const ambience = WORLD === 'island' ? buildAmbience(scene, water) : buildNebulaAmbience(scene, water);
   const cannon = new Cannon(scene);
 
   const terrainMat = toonMaterial({
     color: 0xffffff,
-    rimColor: 0xfff0c8,
+    rimColor: WORLD === 'island' ? 0xfff0c8 : 0xd8b8ff,
     rimStrength: 0.28,
     rimPower: 3.0,
   });
@@ -86,6 +115,7 @@ async function boot() {
   const terrain = level.buildTerrainMesh(terrainMat, {
     size: QUALITY.terrainSize,
     segments: QUALITY.terrainSegments,
+    palette: THEME.terrain,
   });
   scene.add(terrain);
 
@@ -363,25 +393,23 @@ async function boot() {
       aimVec.set(sx * c - sy * sn, 0, -sx * sn - sy * c).normalize();
       peggy.faceLock = Math.atan2(aimVec.x, aimVec.z);
       follow.attract(peggy.faceLock);
+      // Soft lock: a crab or barrel inside the stick's cone gets the gold
+      // ring, and shots steer to it — the Robits assist. Nothing centre-screen.
+      const lock = peggy.inWater ? (cannon.lockOff(), null)
+                                 : cannon.acquire(dt, peggy.position, aimVec, { crabs, loose });
       shootCd -= dt;
       if (shootCd <= 0 && !peggy.inWater) {
         shootCd = 0.18;   // Robits' rocket-class cadence — a stream, not lobs
         if (model.muzzleWorld) model.muzzleWorld(_v);
         else _v.set(peggy.position.x, peggy.position.y + 1.0, peggy.position.z);
-        cannon.fire(_v, aimVec);
+        if (lock) _v2.set(lock.x, lock.y, lock.z).sub(_v).normalize();
+        else _v2.copy(aimVec);
+        cannon.fire(_v, _v2);
         if (model.kick) model.kick();
         follow.addTrauma(0.045);
       }
-    }
-    // The aim ghost: while the trigger is down, the next shot's whole flight
-    // is drawn ahead in the world — same maths, same bounces — so aiming is
-    // reading the level instead of guessing at it. Nothing centre-screen.
-    if (shooting && !peggy.inWater) {
-      if (model.muzzleWorld) model.muzzleWorld(_v);
-      else _v.set(peggy.position.x, peggy.position.y + 1.0, peggy.position.z);
-      cannon.aim(dt, _v, aimVec, { level, water });
     } else {
-      cannon.aimOff();
+      cannon.lockOff();
     }
     if (!aiming && !shooting) peggy.faceLock = null;
 
