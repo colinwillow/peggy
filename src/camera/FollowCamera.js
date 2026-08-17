@@ -51,6 +51,20 @@ const CAM = {
   lookAhead: 1.5,
   lookAheadHL: 0.35,
 
+  // Twin-stick AIM mode: while the trigger is held the camera drops low and
+  // near-level behind her, and the right stick becomes a conventional look
+  // control — x turns, y tilts. The fixed-tilt rule above still holds for
+  // free play; this is the one deliberate exception, and it lapses the frame
+  // the trigger lifts.
+  aimYawRate: 3.4,
+  aimPitchRate: 1.7,
+  aimPitchRest: 0.03,    // near-level: the world ahead, not the ground
+  aimPitchMin: -0.55,    // how far up you may aim
+  aimPitchMax: 0.42,     // ...and down
+  aimBlendHL: 0.10,
+  aimDistanceK: 0.78,    // the boom pulls in a little
+  aimHeightK: 0.55,      // ...and rides lower
+
   swimDistance: 6.2,
   diveDistance: 5.4,
 
@@ -76,6 +90,12 @@ export class FollowCamera {
     this.targetYaw = 0;
     /** Fixed. Exposed so it can be tweaked live from the console. */
     this.pitch = CAM.pitch;
+    /** Twin-stick aim mode: blend toward the low boom, and the aimed tilt. */
+    this.aimBlend = 0;
+    this.aimPitch = CAM.aimPitchRest;
+    /** The tilt the camera is actually rendering with — fire along this. */
+    this.pitchEff = CAM.pitch;
+    this._aimHold = false;
 
     this.focus = new THREE.Vector3();
     this.distance = CAM.distance;
@@ -115,7 +135,27 @@ export class FollowCamera {
    */
   attract(yaw) { this._attractYaw = yaw + Math.PI; }
 
+  /**
+   * Twin-stick aim. Call every frame the trigger is held: `x` turns at a
+   * rate, `yUp` (stick up = positive) tilts the aim, `dyPx` is mouse pixels
+   * for the kbm path. One-frame request like attract() — it lapses when the
+   * calls stop, and the camera eases back to the fixed follow tilt.
+   */
+  aimLook(dt, x, yUp, dyPx = 0) {
+    this._aimHold = true;
+    this.targetYaw -= x * CAM.aimYawRate * dt;
+    this.aimPitch = clamp(
+      this.aimPitch - yUp * CAM.aimPitchRate * dt + dyPx * 0.0045,
+      CAM.aimPitchMin, CAM.aimPitchMax
+    );
+    this._recentring = false;
+  }
+
   update(dt, peggy, look) {
+    // ── aim-mode blend ────────────────────────────────────────────────────
+    this.aimBlend = damp(this.aimBlend, this._aimHold ? 1 : 0, CAM.aimBlendHL, dt);
+    if (!this._aimHold) this.aimPitch = damp(this.aimPitch, CAM.aimPitchRest, 0.35, dt);
+    this._aimHold = false;
     // ── twin-stick attract ────────────────────────────────────────────────
     // Runs before manual input so a deliberate swipe mid-hold still wins the
     // frame (it moves targetYaw after we do).
@@ -166,10 +206,13 @@ export class FollowCamera {
     if (peggy.state === 'swim') want = CAM.swimDistance;
     else if (peggy.state === 'dive') want = CAM.diveDistance;
     else if (peggy.state === 'swing') want = CAM.distance * 1.2;
+    want *= lerp(1, CAM.aimDistanceK, this.aimBlend);
     this._distanceWanted = damp(this._distanceWanted, want, 0.4, dt);
 
     // ── place it ──────────────────────────────────────────────────────────
-    const cp = Math.cos(this.pitch), sp = Math.sin(this.pitch);
+    // The rendered tilt blends from the fixed follow pitch to the aimed one.
+    this.pitchEff = lerp(this.pitch, this.aimPitch, this.aimBlend);
+    const cp = Math.cos(this.pitchEff), sp = Math.sin(this.pitchEff);
     const dir = this._tmp.set(
       Math.sin(this.yaw) * cp,
       sp,
@@ -184,7 +227,8 @@ export class FollowCamera {
 
     this.camera.position.set(
       this.focus.x + dir.x * this.distance,
-      this.focus.y + dir.y * this.distance + CAM.height * (1 - sp * 0.5),
+      this.focus.y + dir.y * this.distance
+        + CAM.height * (1 - sp * 0.5) * lerp(1, CAM.aimHeightK, this.aimBlend),
       this.focus.z + dir.z * this.distance
     );
 

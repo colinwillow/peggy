@@ -207,9 +207,11 @@ export class Input {
     this.hookAim.y = this.stickR.y;
     this.hookAim.mag = this.stickR.mag;
     // The trigger. Touch aims with the stick vector; kbm and pad fire along
-    // the camera (their aiming IS the camera).
+    // the camera (their aiming IS the camera), so main.js needs to know
+    // which kind of aim this is — fromStick drives the twin-stick look.
     let shooting = this.stickR.shootActive;
     let shootX = this.stickR.x, shootY = this.stickR.y;
+    let shootFromStick = shooting;
 
     // keyboard
     const k = this._keys;
@@ -228,12 +230,14 @@ export class Input {
     swap = swap || !!k.KeyX;
 
     // mouse look — the same swipe pixels as touch, scaled for a wrist
+    let dyPx = 0;
     if (this._mouse.locked) {
       dxPx += this._mouse.dx * 0.45;
+      dyPx += this._mouse.dy * 0.45;   // consumed only by the aim-mode tilt
     }
     this._mouse.dx = 0; this._mouse.dy = 0;
     // hold left mouse = fire along the camera; melee moved to V / right-click
-    if (this._mouse.down) { shooting = true; shootX = 0; shootY = -1; }
+    if (this._mouse.down && !shooting) { shooting = true; shootX = 0; shootY = -1; shootFromStick = false; }
     melee = melee || this._mouse.right;
 
     // gamepad
@@ -241,15 +245,16 @@ export class Input {
     if (gp) {
       const dz = (v) => (Math.abs(v) < 0.18 ? 0 : (v - Math.sign(v) * 0.18) / 0.82);
       const gx = dz(gp.axes[0] || 0), gy = dz(gp.axes[1] || 0);
-      const rx = dz(gp.axes[2] || 0);
+      const rx = dz(gp.axes[2] || 0), ry = dz(gp.axes[3] || 0);
       if (gx || gy || rx) this.lastSource = 'pad';
       mx += gx; my += -gy;
-      lx += rx;                       // right stick Y unused, same as touch
+      lx += rx;
+      ly += ry;                       // right stick Y: only the aim-mode tilt reads it
       const btn = (i) => !!(gp.buttons[i] && gp.buttons[i].pressed);
       if (btn(0)) { jump = true; this.lastSource = 'pad'; }
       if (btn(1)) dive = true;
       if (btn(2)) { melee = true; this.lastSource = 'pad'; }        // X
-      if (btn(7)) { shooting = true; shootX = 0; shootY = -1; this.lastSource = 'pad'; } // RT
+      if (btn(7) && !shooting) { shooting = true; shootX = 0; shootY = -1; shootFromStick = false; this.lastSource = 'pad'; } // RT
       if (btn(5)) { hook = true; this.lastSource = 'pad'; }         // RB keeps the hook
       if (btn(3)) { swap = true; this.lastSource = 'pad'; }         // Y swaps weapons
       if (btn(10)) recentre = true;   // L3
@@ -265,13 +270,17 @@ export class Input {
     this.move.x = mx; this.move.y = my; this.move.mag = Math.min(mMag, 1);
     this.look.x = lx; this.look.y = ly; this.look.mag = Math.min(lMag, 1);
     this.look.dxPx = dxPx;
+    this.look.dyPx = dyPx;
 
     this.shoot.active = shooting;
+    this.shoot.fromStick = shootFromStick;
     if (shooting) {
       const sm = Math.hypot(shootX, shootY);
       this.shoot.x = sm > 0.001 ? shootX / sm : 0;
       this.shoot.y = sm > 0.001 ? shootY / sm : -1;
-      this.shoot.mag = 1;
+      // Real deflection for the stick, so the aim-mode dead-band can tell
+      // "holding the trigger" from "steering the look".
+      this.shoot.mag = shootFromStick ? Math.min(1, sm) : 1;
     }
 
     this.jump.set(jump);

@@ -87,7 +87,13 @@ async function boot() {
   scene.fog = new THREE.FogExp2(FOG_AIR.getHex(), THEME.fogDensity);
 
   // Screen-space outlines. ?noink falls back to the raw render.
-  const ink = /noink/.test(location.search) ? null : new InkPass(renderer);
+  // MSAA on the ink target only where the base renderer would have it too:
+  // resolving a MULTISAMPLED depth texture is implementation-defined, and on
+  // Apple GPUs it comes back blocky — white staircase halos around every
+  // silhouette and speckle across the character. Phones run samples: 0.
+  const ink = /noink/.test(location.search)
+    ? null
+    : new InkPass(renderer, { samples: QUALITY.antialias ? 4 : 0 });
 
   const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.1, 3000);
   camera.position.set(0, 10, 20);
@@ -224,7 +230,6 @@ async function boot() {
     new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()
   );
   const aimVec = new THREE.Vector3();
-  let shootRefYaw = 0;     // camera yaw frozen at the frame the trigger engaged
   let wasShooting = false;
   let shootCd = 0;
   let weapon = 'cannon';   // what the right stick drives: 'cannon' | 'hook'
@@ -299,6 +304,10 @@ async function boot() {
     // be in two scenes). Second load hits the browser cache; until it lands
     // the island simply doesn't have her yet.
     createPeggyModel().then((m) => {
+      // The ink pass outlines her here exactly as it does in game — so the
+      // geometry shell stands down here too, or she wears BOTH outlines and
+      // the shell one is gigantic at poster scale.
+      if (ink && m.setInkShell) m.setInkShell(false);
       if (title.vignette) title.vignette.setCharacter(m);
     });
   }
@@ -371,26 +380,33 @@ async function boot() {
     }
 
     // ── the trigger ────────────────────────────────────────────────────────
-    // Push the right stick and she faces the pushed direction while the
-    // camera swings around behind it. What the push MEANS depends on the
-    // weapon: the cannon fires on a cadence while held; the hook LOADS while
-    // held — arm up, harpoon in the blaster — and fires on RELEASE, so a
-    // hold is how you walk around aiming a throw. Aim reads against the
-    // camera yaw FROZEN at engage: read the live camera and the chasing
-    // camera re-aims the stick forever.
+    // Hold the right stick and the game goes TWIN-STICK: the camera drops
+    // low and near-level behind her, she faces where it looks, and the held
+    // stick becomes a conventional look control — past a dead-band, x turns
+    // and y tilts the aim; inside it, the aim holds steady while the
+    // trigger stays down. What the hold MEANS depends on the weapon: the
+    // cannon fires on a cadence along the camera (tilt included), the hook
+    // LOADS — arm up, harpoon in the blaster — and fires on RELEASE.
+    // kbm tilts with the mouse; a pad looks with its right stick.
     const stickHeld = !title.active && input.shoot.active && !hook.active;
-    if (stickHeld && !wasShooting) { shootRefYaw = follow.yaw; shootCd = 0; stickWeapon = weapon; }
+    if (stickHeld && !wasShooting) { shootCd = 0; stickWeapon = weapon; }
     const releasedHook = wasShooting && !stickHeld && stickWeapon === 'hook'
       && !hook.active && !title.active;
     wasShooting = stickHeld;
     const shooting = stickHeld && weapon === 'cannon';
     const hookAiming = stickHeld && weapon === 'hook';
     if (stickHeld) {
-      const c = Math.cos(shootRefYaw), sn = Math.sin(shootRefYaw);
-      const sx = input.shoot.x, sy = -input.shoot.y;
-      aimVec.set(sx * c - sy * sn, 0, -sx * sn - sy * c).normalize();
+      const fromStick = input.shoot.fromStick;
+      // dead-band: the inner half of the deflection is just "trigger down"
+      const k = fromStick ? Math.max(0, input.shoot.mag - 0.45) / 0.55 : 0;
+      follow.aimLook(
+        dt,
+        input.shoot.x * k,
+        -input.shoot.y * k - (fromStick ? 0 : input.look.y),
+        input.look.dyPx || 0
+      );
+      aimVec.set(-Math.sin(follow.yaw), 0, -Math.cos(follow.yaw));
       peggy.faceLock = Math.atan2(aimVec.x, aimVec.z);
-      follow.attract(peggy.faceLock);
     }
     if (shooting) {
       // Soft lock: a crab or barrel inside the stick's cone gets the gold
@@ -402,8 +418,18 @@ async function boot() {
         shootCd = 0.18;   // Robits' rocket-class cadence — a stream, not lobs
         if (model.muzzleWorld) model.muzzleWorld(_v);
         else _v.set(peggy.position.x, peggy.position.y + 1.0, peggy.position.z);
-        if (lock) _v2.set(lock.x, lock.y, lock.z).sub(_v).normalize();
-        else _v2.copy(aimVec);
+        if (lock) {
+          _v2.set(lock.x, lock.y, lock.z).sub(_v).normalize();
+        } else {
+          // unassisted shots follow the camera's aimed tilt, so pointing up
+          // a hill (or at a gull) actually shoots up it
+          const pe = follow.pitchEff;
+          _v2.set(
+            -Math.sin(follow.yaw) * Math.cos(pe),
+            -Math.sin(pe),
+            -Math.cos(follow.yaw) * Math.cos(pe)
+          );
+        }
         cannon.fire(_v, _v2);
         if (model.kick) model.kick();
         follow.addTrauma(0.045);

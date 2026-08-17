@@ -566,9 +566,11 @@ export function buildNebulaWorld(scene) {
     cap.castShadow = true;
     cap.receiveShadow = true;
     props.add(cap);
-    // mossy lip overhanging the rim
+    // mossy lip overhanging the rim — its top face sits a hair BELOW the
+    // cap's, because two coplanar faces z-fight into hatched garbage on a
+    // phone's depth precision
     const lip = new THREE.Mesh(new THREE.CylinderGeometry(R * 1.06, R * 0.98, 0.2, 10), tealMat);
-    lip.position.set(px, topY - 0.1, pz);
+    lip.position.set(px, topY - 0.125, pz);
     lip.receiveShadow = true;
     props.add(lip);
     const keel = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.8, 0.12, R * 1.15, 9), rockDarkMat);
