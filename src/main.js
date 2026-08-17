@@ -37,6 +37,11 @@ const THEME = WORLD === 'island' ? {
   water: { shallow: 0x5ce9d1, deep: 0x0d64a2, foam: 0xf7feff },
   terrain: {},
   lights: {},
+  // the finish: warm tropical haze, sun-gold sunward, a gentle warm print
+  grade: {
+    hazeColor: 0xa8c8e8, hazeSun: 0xffd9a0, hazeK: 0.0022,
+    gradeTint: 0xfffcf7, desat: 0.06, contrast: 0.30, vignette: 0.30,
+  },
 } : {
   // the nebula: a violet dusk lit by a white star, stardust for a sea
   fogAir: 0x271b45, fogWater: 0x1d0f3a, fogDensity: 0.0030,
@@ -56,6 +61,12 @@ const THEME = WORLD === 'island' ? {
     keyColor: 0xe8e6ff, keyIntensity: 1.35,
     skyColor: 0x8a7ccf, groundColor: 0x3c2a55, hemiIntensity: 0.72,
     fillColor: 0xff7ec2, fillIntensity: 0.38,
+  },
+  // the finish: violet dust haze, pale starlight sunward, a cool print —
+  // desaturation kept light so the neon crystals stay neon
+  grade: {
+    hazeColor: 0x4a3a78, hazeSun: 0xbcd4ff, hazeK: 0.0026,
+    gradeTint: 0xfaf7ff, desat: 0.045, contrast: 0.32, vignette: 0.34,
   },
 };
 
@@ -94,6 +105,7 @@ async function boot() {
   const ink = /noink/.test(location.search)
     ? null
     : new InkPass(renderer, { samples: QUALITY.antialias ? 4 : 0 });
+  if (ink) ink.setLook({ ...THEME.grade, sunDir: SUN_DIR });
 
   const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.1, 3000);
   camera.position.set(0, 10, 20);

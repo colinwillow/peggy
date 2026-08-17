@@ -130,6 +130,14 @@ const frag = /* glsl */`
     float spec = max( dot( reflect( -normalize( uSunDir ), N ), V ), 0.0 );
     col += vec3( 1.0, 0.97, 0.85 ) * step( 0.86, pow( spec, 12.0 ) ) * 0.5 * detail;
 
+    // ── the glitter path (Volcanic's spec trick): a broad fresnel-weighted
+    // sparkle band along the sun line, strongest at grazing view angles — so
+    // the sea lights up toward the sun without washing out underfoot
+    vec3 H = normalize( normalize( uSunDir ) + V );
+    float fres = 0.04 + 0.96 * pow( clamp( 1.0 - dot( H, V ), 0.0, 1.0 ), 5.0 );
+    float glit = pow( max( dot( N, H ), 0.0 ), 48.0 );
+    col += vec3( 1.0, 0.95, 0.82 ) * glit * fres * 2.2 * detail;
+
     gl_FragColor = vec4( col, 0.90 );
     #include <colorspace_fragment>
   }
