@@ -219,6 +219,20 @@ async function boot() {
   aimLine.frustumCulled = false;
   scene.add(aimLine);
 
+  // ── the firing reticle ───────────────────────────────────────────────────
+  // Only while the trigger is down: a small ring riding the aim ray — at the
+  // lock target when one is held, at cannon reach otherwise — so direction
+  // and rough distance are readable with zero permanent screen chrome.
+  const shotRet = new THREE.Group();
+  const shotRetMat = new THREE.MeshBasicMaterial({
+    color: 0xf4e6c8, transparent: true, opacity: 0, depthTest: false, depthWrite: false,
+  });
+  shotRet.add(new THREE.Mesh(new THREE.TorusGeometry(1, 0.09, 6, 22), shotRetMat));
+  shotRet.add(new THREE.Mesh(new THREE.CircleGeometry(0.14, 10), shotRetMat));
+  shotRet.renderOrder = 30;
+  shotRet.visible = false;
+  scene.add(shotRet);
+
   const lockMarker = new THREE.Mesh(
     new THREE.OctahedronGeometry(0.34),
     new THREE.MeshBasicMaterial({ color: 0xffd97a, transparent: true, opacity: 0.95, depthWrite: false })
@@ -395,10 +409,16 @@ async function boot() {
     wasShooting = stickHeld;
     const shooting = stickHeld && weapon === 'cannon';
     const hookAiming = stickHeld && weapon === 'hook';
+    let aimPan = 0;
     if (stickHeld) {
       const fromStick = input.shoot.fromStick;
-      // dead-band: the inner half of the deflection is just "trigger down"
-      const k = fromStick ? Math.max(0, input.shoot.mag - 0.45) / 0.55 : 0;
+      // A SMALL dead-band only — enough that a resting thumb doesn't drift
+      // the view, and no more. The old 45% band read as flat lag, and it hit
+      // rightward pushes hardest: a thumb parked near the screen edge runs
+      // out of glass before it runs out of intent, so full rate must arrive
+      // well inside the reachable deflection.
+      const k = fromStick ? clamp01((input.shoot.mag - 0.15) / 0.45) : 0;
+      aimPan = Math.abs(input.shoot.x * k);
       follow.aimLook(
         dt,
         input.shoot.x * k,
@@ -434,8 +454,39 @@ async function boot() {
         if (model.kick) model.kick();
         follow.addTrauma(0.045);
       }
+
+      // the reticle rides the aim ray, sized for a constant screen footprint
+      const pe = follow.pitchEff;
+      _v.set(
+        -Math.sin(follow.yaw) * Math.cos(pe),
+        -Math.sin(pe),
+        -Math.cos(follow.yaw) * Math.cos(pe)
+      );
+      const retD = lock
+        ? Math.hypot(lock.x - peggy.position.x, lock.y - (peggy.position.y + 1.1), lock.z - peggy.position.z)
+        : 13;
+      shotRet.position.set(
+        peggy.position.x + _v.x * retD,
+        peggy.position.y + 1.1 + _v.y * retD,
+        peggy.position.z + _v.z * retD
+      );
+      shotRet.quaternion.copy(camera.quaternion);
+      shotRet.scale.setScalar(shotRet.position.distanceTo(camera.position) * 0.016);
+      shotRetMat.opacity = 0.75 * follow.aimBlend;
+      shotRet.visible = true;
+
+      // lock magnetism: gently centre the target in frame — and yield the
+      // moment the thumb is deliberately panning elsewhere
+      if (lock && aimPan < 0.25) {
+        const ldx = lock.x - peggy.position.x, ldz = lock.z - peggy.position.z;
+        const ldh = Math.hypot(ldx, ldz) || 1;
+        const ldy = lock.y - (peggy.position.y + 1.1);
+        follow.assistAim(dt, Math.atan2(-ldx, -ldz), Math.atan2(-ldy, ldh));
+      }
     } else {
       cannon.lockOff();
+      shotRet.visible = false;
+      shotRetMat.opacity = 0;
     }
     if (hookAiming) {
       // The override is set BEFORE hook.update and left in place across the
@@ -472,9 +523,12 @@ async function boot() {
 
       aimCurve.v0.copy(hand);
       aimCurve.v2.copy(end);
+      // The control point matches the flight's actual lob height (bezier
+      // midpoint bulge = half the control offset), so the preview IS the arc.
+      const lobH = Math.min(2.6, hand.distanceTo(end) * 0.17);
       aimCurve.v1.set(
         (hand.x + end.x) / 2,
-        Math.max(hand.y, end.y) + 1.6,   // the throw arcs; the line should too
+        (hand.y + end.y) / 2 + lobH * 2,
         (hand.z + end.z) / 2
       );
       const pos = aimLine.geometry.attributes.position;

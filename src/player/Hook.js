@@ -40,6 +40,11 @@ const HOOK = {
   swingGrace: 0.30,      // ignore the ground-collision bail-out for this long
   aimAssistCone: 0.28,
   whiffDistance: 9.5,    // a miss should travel far enough to look like a throw
+  // The throw is a LOB, not a laser: the head arcs to its mark like a lasso
+  // leaving the hand. Peak height is a fraction of the throw distance, capped
+  // so long throws don't sail absurdly high.
+  lobArc: 0.17,
+  lobArcMax: 2.6,
 };
 
 export const HookState = {
@@ -67,6 +72,8 @@ export class Hook {
 
     this._dir = new THREE.Vector3();
     this._tmp = new THREE.Vector3();
+    this._from = new THREE.Vector3();   // where the throw left the hand
+    this._flightLen = 0;                // chord length of a targeted lob
     /**
      * Set by the aim-hold: while the player steers the throw with the stick,
      * this replaces the camera heading. Latched across the release frame (the
@@ -152,12 +159,13 @@ export class Hook {
     this.aimOverride = null;   // consumed by this throw
 
     const goal = this.target ? this.target.pos : this.targetHaulable?.position;
+    this._from.copy(this.head);
+    this._flightLen = goal ? this.head.distanceTo(goal) : 0;
     if (goal) {
       this._dir.subVectors(goal, this.head).normalize();
     } else {
-      // A whiff arcs upward, so a miss reads as a thrown hook rather than as
-      // something skittering along the ground.
-      this._dir.set(this._dir.x, 0.42, this._dir.z).normalize();
+      // A whiff lobs upward and droops — a thrown rope, not a laser.
+      this._dir.set(this._dir.x, 0.58, this._dir.z).normalize();
     }
   }
 
@@ -178,27 +186,37 @@ export class Hook {
 
   _flying(dt) {
     const step = HOOK.flySpeed * dt;
-    this.head.addScaledVector(this._dir, step);
     this._flightDist += step;
 
-    if (this.target) {
-      if (this.head.distanceTo(this.target.pos) < 1.2) {
-        this.head.copy(this.target.pos);
-        this.anchor = this.target;
-        this._latch();
-        return;
+    const goal = this.target ? this.target.pos : this.targetHaulable?.position;
+    if (goal) {
+      // The lob: the head rides a parabolic arc to its mark — a lasso throw,
+      // not a laser — and still arrives exactly where the verb was decided.
+      // The goal is re-read every frame because a haulable can be moving.
+      const len = Math.max(this._flightLen, 0.001);
+      const t = Math.min(1, this._flightDist / len);
+      this.head.lerpVectors(this._from, goal, t);
+      this.head.y += Math.min(HOOK.lobArcMax, len * HOOK.lobArc) * 4 * t * (1 - t);
+      if (t >= 1) {
+        this.head.copy(goal);
+        if (this.target) {
+          this.anchor = this.target;
+          this._latch();
+        } else {
+          this.hauled = this.targetHaulable;
+          this.hauled.held = true;
+          this.state = HookState.HAULING;
+          this.emit('haulStart', { object: this.hauled });
+        }
       }
-    } else if (this.targetHaulable) {
-      if (this.head.distanceTo(this.targetHaulable.position) < 1.2) {
-        this.hauled = this.targetHaulable;
-        this.hauled.held = true;
-        this.state = HookState.HAULING;
-        this.emit('haulStart', { object: this.hauled });
-        return;
-      }
+      return;
     }
 
-    if (this._flightDist > (this.target || this.targetHaulable ? HOOK.range : HOOK.whiffDistance)) {
+    // a whiff lobs too: up, out, and drooping until the rope runs out
+    this.head.addScaledVector(this._dir, step);
+    this._dir.y -= 1.4 * dt;
+    this._dir.normalize();
+    if (this._flightDist > HOOK.whiffDistance) {
       this.state = HookState.RETRACTING;
       this.emit('whiff', {});
     }

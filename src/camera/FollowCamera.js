@@ -56,8 +56,9 @@ const CAM = {
   // control — x turns, y tilts. The fixed-tilt rule above still holds for
   // free play; this is the one deliberate exception, and it lapses the frame
   // the trigger lifts.
-  aimYawRate: 3.4,
+  aimYawRate: 3.6,
   aimPitchRate: 1.7,
+  assistHL: 0.45,        // lock-on magnetism: drift, never a snap
   aimPitchRest: 0.03,    // near-level: the world ahead, not the ground
   aimPitchMin: -0.55,    // how far up you may aim
   aimPitchMax: 0.42,     // ...and down
@@ -144,11 +145,27 @@ export class FollowCamera {
   aimLook(dt, x, yUp, dyPx = 0) {
     this._aimHold = true;
     this.targetYaw -= x * CAM.aimYawRate * dt;
+    // While the stick is actually steering, the camera must track the rate
+    // input near 1:1 — the follow half-life reads as LAG under a live thumb.
+    if (Math.abs(x) > 0.03 || Math.abs(yUp) > 0.03) this._aimTurning = true;
     this.aimPitch = clamp(
       this.aimPitch - yUp * CAM.aimPitchRate * dt + dyPx * 0.0045,
       CAM.aimPitchMin, CAM.aimPitchMax
     );
     this._recentring = false;
+  }
+
+  /**
+   * Lock-on magnetism: drift the view toward the target — subtle, an assist
+   * that centres what you're already aiming at, never a snap that takes over.
+   */
+  assistAim(dt, yawTo, pitchTo) {
+    this.targetYaw = dampAngle(this.targetYaw, yawTo, CAM.assistHL, dt);
+    this.aimPitch = damp(
+      this.aimPitch,
+      clamp(pitchTo, CAM.aimPitchMin, CAM.aimPitchMax),
+      CAM.assistHL * 1.5, dt
+    );
   }
 
   update(dt, peggy, look) {
@@ -168,7 +185,8 @@ export class FollowCamera {
     // Two inputs: a rate from held sticks (gamepad, Q/E) and swiped pixels
     // from touch/mouse. Horizontal only; look.y is ignored — see CAM.pitch.
     const dxPx = look.dxPx || 0;
-    const turning = Math.abs(look.x) > 0.05 || Math.abs(dxPx) > 0.5;
+    const turning = Math.abs(look.x) > 0.05 || Math.abs(dxPx) > 0.5 || !!this._aimTurning;
+    this._aimTurning = false;
     if (turning) {
       this.targetYaw -= look.x * CAM.yawRate * dt + dxPx * CAM.swipeSens;
       this._recentring = false;    // any manual input cancels a recentre

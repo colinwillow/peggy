@@ -129,7 +129,10 @@ export class Input {
     if (this.stickL.held || this.stickR.held) return;
     const y = innerHeight * (innerHeight < innerWidth ? 0.70 : 0.78);
     this.stickL.park(innerWidth * 0.20, y);
-    this.stickR.park(innerWidth * 0.80, y);
+    // A hair further inboard than the left stick's mirror: a thumb parked at
+    // the edge runs out of GLASS deflecting outward, which read as the aim
+    // turning right slower than left.
+    this.stickR.park(innerWidth * 0.77, y);
   }
 
   // ── keyboard ─────────────────────────────────────────────────────────────
