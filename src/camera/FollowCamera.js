@@ -61,7 +61,7 @@ const CAM = {
   aimPitchRest: 0.03,    // near-level: the world ahead, not the ground
   aimPitchMin: -0.55,    // how far up you may aim
   aimPitchMax: 0.42,     // ...and down
-  aimBlendHL: 0.10,
+  aimBlendHL: 0.20,      // the two cameras trade places smoothly, not snappily
   aimDistanceK: 0.78,    // the boom pulls in a little
   aimHeightK: 0.55,      // ...and rides lower
 

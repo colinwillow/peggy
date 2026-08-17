@@ -124,12 +124,12 @@ const reset = async () => {
   await page.waitForTimeout(420);
 };
 
-// THE SHOOT STICK. Push = the trigger: she turns, the camera swings behind
-// the aim, the cannon fires while held. A snap that releases fast is still
-// the melee flick — the trigger waits out the flick-candidate window, so a
-// flick never fires a stray round. A rest at centre is nothing at all now
-// (the aim-hold verb moved off this stick with the hook), and the camera
-// only moves when the TRIGGER is down — flicks and taps must leave it still.
+// THE SHOOT STICK. TOUCHING it is the trigger: any press that outlives a tap
+// starts firing straight ahead, and a deliberate push engages instantly.
+// Once firing, deflection past the dead-band aims — a rest at centre keeps
+// firing without panning. A snap that releases fast is still the melee
+// flick — the trigger waits out the flick-candidate window, so a flick never
+// fires a stray round — and taps still jump.
 //                name                          px   ms  hold  jit   expect  camera-must
 const CASES = [
   ['fast flick    90px /  70ms',                90,   70,   0,  0, 'flick', 'still'],
@@ -138,7 +138,7 @@ const CASES = [
   ['deliberate push + hold = fire',            110,  400, 500,  0, 'shoot', 'moved'],
   ['snap out + hold = fire, no melee',         120,   80, 550,  0, 'shoot', 'moved'],
   ['steered fire: push, then travel',          200,  700, 350,  0, 'shoot', 'moved'],
-  ['hold centre 600ms is nothing now',           0,  200, 400,  6, 'drag',  'still'],
+  ['hold centre = fire ahead, no pan',           0,  200, 400,  6, 'shoot', 'still'],
   ['tap          40ms, no travel',               0,   40,   0,  0, 'tap',   'still'],
 ];
 
