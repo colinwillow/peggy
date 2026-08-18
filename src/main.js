@@ -256,6 +256,7 @@ async function boot() {
     new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()
   );
   const aimVec = new THREE.Vector3();
+  let shootRefYaw = 0;     // camera yaw frozen at the frame the push engaged
   let wasShooting = false;
   let shootCd = 0;
   let weapon = 'cannon';   // what the right stick drives: 'cannon' | 'hook'
@@ -406,99 +407,73 @@ async function boot() {
     }
 
     // ── the trigger ────────────────────────────────────────────────────────
-    // Hold the right stick and the game goes TWIN-STICK: the camera drops
-    // low and near-level behind her, she faces where it looks, and the held
-    // stick becomes a conventional look control — past a dead-band, x turns
-    // and y tilts the aim; inside it, the aim holds steady while the
-    // trigger stays down. What the hold MEANS depends on the weapon: the
-    // cannon fires on a cadence along the camera (tilt included), the hook
-    // LOADS — arm up, harpoon in the blaster — and fires on RELEASE.
-    // kbm tilts with the mouse; a pad looks with its right stick.
+    // The Robits model, and the one this game is built around: PUSH the right
+    // stick a direction and that direction is everything — she turns to face
+    // it, the camera works its way around behind it, and the weapon commits
+    // there. Up fires ahead, down turns her round and fires backwards,
+    // left/right fire sideways. Aiming is HORIZONTAL only: the vertical is
+    // the aim assist's job, which steers shots up or down to a locked target.
+    //
+    // The stick is read against the camera yaw FROZEN at the moment the push
+    // engaged. Reading the live yaw feeds back — the camera chases the aim,
+    // the aim re-derives from the camera — and a held diagonal orbits forever
+    // instead of settling.
+    //
+    // (FollowCamera keeps its free-tilt aim mode, unused today, for the
+    // 3D-aiming toggle the hook is going to want.)
     const stickHeld = !title.active && input.shoot.active && !hook.active;
-    if (stickHeld && !wasShooting) { shootCd = 0; stickWeapon = weapon; }
+    if (stickHeld && !wasShooting) { shootRefYaw = follow.yaw; shootCd = 0; stickWeapon = weapon; }
     const releasedHook = wasShooting && !stickHeld && stickWeapon === 'hook'
       && !hook.active && !title.active;
     wasShooting = stickHeld;
     const shooting = stickHeld && weapon === 'cannon';
     const hookAiming = stickHeld && weapon === 'hook';
-    let aimPan = 0;
     if (stickHeld) {
-      const fromStick = input.shoot.fromStick;
-      // A SMALL dead-band only — enough that a resting thumb doesn't drift
-      // the view, and no more. The old 45% band read as flat lag, and it hit
-      // rightward pushes hardest: a thumb parked near the screen edge runs
-      // out of glass before it runs out of intent, so full rate must arrive
-      // well inside the reachable deflection.
-      const k = fromStick ? clamp01((input.shoot.mag - 0.15) / 0.45) : 0;
-      aimPan = Math.abs(input.shoot.x * k);
-      follow.aimLook(
-        dt,
-        input.shoot.x * k,
-        -input.shoot.y * k - (fromStick ? 0 : input.look.y),
-        input.look.dyPx || 0
-      );
-      aimVec.set(-Math.sin(follow.yaw), 0, -Math.cos(follow.yaw));
+      const c = Math.cos(shootRefYaw), sn = Math.sin(shootRefYaw);
+      const sx = input.shoot.x, sy = -input.shoot.y;   // screen y is down
+      aimVec.set(sx * c - sy * sn, 0, -sx * sn - sy * c).normalize();
       peggy.faceLock = Math.atan2(aimVec.x, aimVec.z);
+      follow.attract(peggy.faceLock);
     }
     if (shooting) {
-      // Soft lock: a crab or barrel inside the stick's cone gets the gold
-      // ring, and shots steer to it — the Robits assist. Nothing centre-screen.
+      // Soft lock: a crab or cask inside the stick's cone gets the gold ring,
+      // and shots steer to it — including UP or DOWN to reach one above or
+      // below her, which is the whole of this game's vertical aiming.
       const lock = peggy.inWater ? (cannon.lockOff(), null)
                                  : cannon.acquire(dt, peggy.position, aimVec, { crabs, loose });
+      // ...and the camera eases around to put that target in frame. It rides
+      // the SAME attract the stick uses, so the assist and the push can never
+      // fight each other — the last call of the frame simply wins.
+      if (lock) follow.attract(Math.atan2(lock.x - peggy.position.x, lock.z - peggy.position.z));
       shootCd -= dt;
       if (shootCd <= 0 && !peggy.inWater) {
         shootCd = 0.18;   // Robits' rocket-class cadence — a stream, not lobs
         if (model.muzzleWorld) model.muzzleWorld(_v);
         else _v.set(peggy.position.x, peggy.position.y + 1.0, peggy.position.z);
-        if (lock) {
-          _v2.set(lock.x, lock.y, lock.z).sub(_v).normalize();
-        } else {
-          // unassisted shots follow the camera's aimed tilt, so pointing up
-          // a hill (or at a gull) actually shoots up it
-          const pe = follow.pitchEff;
-          _v2.set(
-            -Math.sin(follow.yaw) * Math.cos(pe),
-            -Math.sin(pe),
-            -Math.cos(follow.yaw) * Math.cos(pe)
-          );
-        }
+        if (lock) _v2.set(lock.x, lock.y, lock.z).sub(_v).normalize();
+        else _v2.copy(aimVec);
         cannon.fire(_v, _v2);
         if (model.kick) model.kick();
         follow.addTrauma(0.045);
       }
 
-      // the reticle rides the aim ray, sized for a constant screen footprint
-      const pe = follow.pitchEff;
-      _v.set(
-        -Math.sin(follow.yaw) * Math.cos(pe),
-        -Math.sin(pe),
-        -Math.cos(follow.yaw) * Math.cos(pe)
-      );
-      const retD = lock
-        ? Math.hypot(lock.x - peggy.position.x, lock.y - (peggy.position.y + 1.1), lock.z - peggy.position.z)
-        : 13;
-      shotRet.position.set(
-        peggy.position.x + _v.x * retD,
-        peggy.position.y + 1.1 + _v.y * retD,
-        peggy.position.z + _v.z * retD
+      // The reticle rides the shot line: on the locked target, or level out
+      // at cannon reach along the push. Scaled by view distance so it keeps a
+      // constant footprint on screen.
+      if (lock) shotRet.position.set(lock.x, lock.y, lock.z);
+      else shotRet.position.set(
+        peggy.position.x + aimVec.x * 13,
+        peggy.position.y + 1.1,
+        peggy.position.z + aimVec.z * 13
       );
       shotRet.quaternion.copy(camera.quaternion);
-      shotRet.scale.setScalar(shotRet.position.distanceTo(camera.position) * 0.016);
-      shotRetMat.opacity = 0.75 * follow.aimBlend;
+      shotRet.scale.setScalar(shotRet.position.distanceTo(camera.position) * 0.021);
+      shotRetMat.opacity = damp(shotRetMat.opacity, 0.75, 0.07, dt);
       shotRet.visible = true;
-
-      // lock magnetism: gently centre the target in frame — and yield the
-      // moment the thumb is deliberately panning elsewhere
-      if (lock && aimPan < 0.25) {
-        const ldx = lock.x - peggy.position.x, ldz = lock.z - peggy.position.z;
-        const ldh = Math.hypot(ldx, ldz) || 1;
-        const ldy = lock.y - (peggy.position.y + 1.1);
-        follow.assistAim(dt, Math.atan2(-ldx, -ldz), Math.atan2(-ldy, ldh));
-      }
     } else {
       cannon.lockOff();
-      shotRet.visible = false;
-      shotRetMat.opacity = 0;
+      shotRetMat.opacity = damp(shotRetMat.opacity, 0, 0.07, dt);
+      shotRet.visible = shotRetMat.opacity > 0.02;
     }
     if (hookAiming) {
       // The override is set BEFORE hook.update and left in place across the

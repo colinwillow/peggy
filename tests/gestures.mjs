@@ -124,12 +124,12 @@ const reset = async () => {
   await page.waitForTimeout(420);
 };
 
-// THE SHOOT STICK. TOUCHING it is the trigger: any press that outlives a tap
-// starts firing straight ahead, and a deliberate push engages instantly.
-// Once firing, deflection past the dead-band aims — a rest at centre keeps
-// firing without panning. A snap that releases fast is still the melee
-// flick — the trigger waits out the flick-candidate window, so a flick never
-// fires a stray round — and taps still jump.
+// THE SHOOT STICK. Its DIRECTION is the aim: push and she turns that way, the
+// camera swings behind it, and the weapon commits there. Deflection is the
+// whole verb, so a thumb resting at centre is nothing at all. A snap that
+// releases fast is still the melee flick — the trigger waits out the
+// flick-candidate window, so a flick never fires a stray round — and taps
+// still jump. The camera only moves when the TRIGGER is down.
 //                name                          px   ms  hold  jit   expect  camera-must
 const CASES = [
   ['fast flick    90px /  70ms',                90,   70,   0,  0, 'flick', 'still'],
@@ -138,7 +138,7 @@ const CASES = [
   ['deliberate push + hold = fire',            110,  400, 500,  0, 'shoot', 'moved'],
   ['snap out + hold = fire, no melee',         120,   80, 550,  0, 'shoot', 'moved'],
   ['steered fire: push, then travel',          200,  700, 350,  0, 'shoot', 'moved'],
-  ['hold centre = fire ahead, no pan',           0,  200, 400,  6, 'shoot', 'still'],
+  ['hold centre 600ms is nothing',               0,  200, 400,  6, 'drag',  'still'],
   ['tap          40ms, no travel',               0,   40,   0,  0, 'tap',   'still'],
 ];
 

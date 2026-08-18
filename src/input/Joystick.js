@@ -82,18 +82,17 @@ const SWIPE_BUFFER_MS = 110; // deltas buffered at touch start, pending a verdic
 const AIM_STILL_MS = 200;    // this long without above-slop movement
 
 // ── SHOOT MODE (opts.shootStick) ───────────────────────────────────────────
-// The right stick IS the gun, and TOUCHING it pulls the trigger: any press
-// that outlives a tap starts shooting straight ahead, and a deliberate push
-// engages instantly. Once shooting, deflection past the dead-band AIMS
-// (twin-stick look, handled upstream) — so springing back to centre holds
-// the aim and keeps firing, and only LIFTING the thumb lets go. Tap and
-// flick keep their verbs (jump, melee); the swipe-camera and the aim-hold
-// gave their thumb-territory to the trigger. A fast snap still becomes a
-// flick candidate first, so a melee flick never fires a stray shot — the
-// trigger engages only once the candidate window has passed (or immediately
-// on a deliberate, non-snap push).
-const SHOOT_ZONE = 0.40;     // deflection that pulls the trigger instantly
-const SHOOT_HOLD_MS = 240;   // any touch held this long is the trigger too (> TAP_MAX_MS)
+// The Robits model: the right stick IS the gun, and its DIRECTION is the aim.
+// Push it any way and the character turns there, the camera swings behind,
+// and the weapon commits that way — hold to keep firing, steer while held,
+// let it spring back to stop. Deflection is the whole verb, so a thumb
+// resting at centre does nothing at all. Tap and flick keep theirs (jump,
+// melee); the swipe-camera and the aim-hold gave their thumb-territory to
+// the trigger. A fast snap becomes a flick candidate first, so a melee flick
+// never fires a stray shot — the trigger engages only once the candidate
+// window has passed (or immediately on a deliberate, non-snap push).
+const SHOOT_ZONE = 0.40;     // deflection that pulls the trigger
+const SHOOT_RELEASE = 0.26;  // spring back inside this to stop firing
 
 export class Joystick {
   /**
@@ -451,15 +450,12 @@ export class Joystick {
         return 0;
       }
       if (this.shootActive) {
-        // Only a melee flick steals the trigger back — centre is the aim
-        // dead-band now, so springing back must NOT stop the firing. The
-        // thumb lifting is what lets go (handled by the !held branch above).
-        if (this._flickedThisTouch) this.shootActive = false;
+        // Spring back toward centre (or a melee flick) lets go of the trigger.
+        if (this.mag < SHOOT_RELEASE || this._flickedThisTouch) this.shootActive = false;
       } else if (!this._flickedThisTouch && !this.muted && !this._cand
-          && (this.mag >= SHOOT_ZONE || now - this._tapStart >= SHOOT_HOLD_MS)) {
-        // A deliberate push engages INSTANTLY; a snapped push engages when
-        // its candidate window expires unresolved; and ANY press that has
-        // outlived a tap engages right where it rests — touch to shoot.
+          && this.mag >= SHOOT_ZONE) {
+        // No open flick candidate: a deliberate push engages INSTANTLY; a
+        // snapped push engages when its candidate window expires unresolved.
         this.shootActive = true;
         this._shotThisTouch = true;
         this.lastGesture = 'shoot';
